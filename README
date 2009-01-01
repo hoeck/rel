@@ -1,0 +1,15 @@
+Relational Algebra in Clojure
+-----------------------------
+
+Implementation of the relational operators: projection, selection,
+crossproduct, join, union, difference and intersection. There are
+currently 2 different implementations, one with clojure sets and one
+which generates and queries an sql database.
+
+See also some example code in hoeck/rel/test.clj
+
+to use it in clojure, copy the whole hoeck directiory to your
+classpath and then simply do a (require 'hoeck.rel) or (use
+'hoeck.rel). The interface is defined (and documented) in
+hoeck/rel.clj.
+
