@@ -25,8 +25,8 @@
 ;   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns hoeck.rel
-  (:require [hoeck.rel.sql  :as sql]
-            [hoeck.rel.sql-utils  :as sql-utils]
+  (:require ;[hoeck.rel.sql  :as sql]
+            ;[hoeck.rel.sql-utils  :as sql-utils]
             [hoeck.rel.core :as rel-core]
             [hoeck.rel.iris :as iris]
             [hoeck.rel.fn])
@@ -48,7 +48,6 @@
           body)))
 
 ;; form the relation interface & some helpers
-
 (defn as
   "rename all fields of a relation such that they have a common prefix"
   [R prefix]
@@ -67,6 +66,7 @@
   ;;       or [(< 10 ?) ? (not= #{dresden, rostock})]
   ;;        -> use all of {[()]} 
   ;;       multiarg-select: keyword value -> hashmap access like `get' where (name :keyword) == field-name
+  ;;       => qbe ????
   "convienience macro around select."
   [R condition]
   `(select-fn ~R (rel-core/condition ~condition)))
@@ -93,6 +93,7 @@
                                       (if (rest v) v (first v)))])
                      ((rel-core/index R) fpos)))))
   ([R field & more-fields]
+     (unsupported-operation!)
      ;;; ????
      ))
 
@@ -100,7 +101,7 @@
   "Returns a relation that contains maps instead of vectors as tuples.
   so #{[1 willy]} will become #{{id 1 name willy}}."
   [R]
-  (let [fields (fields R), index (rel-core/index R)
+  (let [fields (rel-core/fields R), index (rel-core/index R)
         ;;sm (apply create-struct fields)
         ;;tup->map #(apply struct-map sm (mapcat list fields %))
         tup->map #(apply hash-map (mapcat list fields %))
@@ -113,25 +114,28 @@
       'get (fn get [_ k] (.get R (vec (vals k))))})))
 
 ;;; -> query by example; Applicable as a default .get method in fproxy-relation
-(defn qbe [R & args] ;; -> :name 'frieda :id 1
-  (cond (vector? (first args))
-          (query-by-tuple R (first args))
-        :else
-          (query-by-hashmap R (apply hash-map args))))
-
-(defn query-by-tuple [R & args]
-  )
-(defn query-by-hashmap [R & args]
-  )
+(defn qbe 
+  "Query by Example, utilizes the relational algebra."
+  [R & args] ;; -> :name 'frieda :id 1
+  (unsupported-operation!))
+;  (cond (vector? (first args))
+;          (query-by-tuple R (first args))
+;        :else
+;          (query-by-hashmap R (apply hash-map args))))
+;; --> query-by-hashmap, query-by-tuple
 
 (def-lots-of-aliases
   (rel-core project rename xproduct union intersection difference make-relation fields)
-  (iris with-empty-universe <- ?-)
+  (iris with-empty-universe <- ?-))
+
+
+;; sql stuff needs hoeck.rel
+(require '[hoeck.rel.sql-utils  :as sql-utils])
+(require '[hoeck.rel.sql  :as sql])
+
+(def-lots-of-aliases 
   (sql-utils default-derby-args default-sybase-args))
 
 (defaliases
   sql-connection sql-utils/make-connection-fn)
-
-
-
 

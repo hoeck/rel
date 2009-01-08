@@ -13,3 +13,5 @@ classpath and then simply do a (require 'hoeck.rel) or (use
 'hoeck.rel). The interface is defined (and documented) in
 hoeck/rel.clj.
 
+Needs also some modules from clojure.contrib (fcase, sql).
+

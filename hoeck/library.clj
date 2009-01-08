@@ -166,14 +166,14 @@ Defaults to (= n 2)."
   [s value]
   (first (filter identity (map #(and (= value %) %2) (seq s) (counter)))))
 
-(defn atom?
-  "Returns logical true if x is an atom. An atom here is every expression
-  which is not a readable clojure datastructure."
-  [x]
-  (not (or (instance? (class '[v e c t o r])     x)
-           (instance? (class '#{s e t})          x)
-           (instance? (class '(l i s t))         x)
-           (instance? (class '{:h a :sh m :a p}) x))))
+;(defn atom?
+;  "Returns logical true if x is an atom. An atom here is every expression
+;  which is not a readable clojure datastructure."
+;  [x]
+;  (not (or (instance? (class '[v e c t o r])     x)
+;           (instance? (class '#{s e t})          x)
+;           (instance? (class '(l i s t))         x)
+;           (instance? (class '{:h a :sh m :a p}) x))))
 
 ;(defn walk-expr
 ;  "Maps a function over an expression by recuring over every readable datastructure.
@@ -298,6 +298,17 @@ pred is a function which decides if f should be applied to the current form."
                    (merge last-arg result-map))
                :else
                  result-map)))))
+
+      
+(defn unsupported-operation!
+  "throw a java.lang.UnsupportedOperationException with messages as text."
+  [& messages]
+  (throw (UnsupportedOperationException. (apply str messages))))
+
+(defn illegal-argument! 
+  "throw a java.lang.IllegalArgumentException with messages as text."
+  [& messages]
+  (throw (IllegalArgumentException. (apply str messages))))
 
 ;;; ------
 ;;; macros 

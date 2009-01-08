@@ -222,7 +222,7 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
     (make-relation (into #{} (map vec (rest data))) :fields fields)))
 
 (defn empty-relation [fields]
-  (hoeck.rel.core/make-relation #{} :fields (vec fields)))
+  (make-relation #{} :fields (vec fields)))
 
 ;; condition
 (defn make-coded-symbol-predicate

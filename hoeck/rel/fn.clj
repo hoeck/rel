@@ -31,8 +31,8 @@
   (:use hoeck.rel.core hoeck.library clojure.contrib.fcase)
   (:import (clojure.lang MapEntry)))
 
-(defn empty-relation [fields]
-  (hoeck.rel.core/make-relation #{} :fields (vec fields)))
+;(defn empty-relation [fields]
+;  (hoeck.rel.core/make-relation #{} :fields (vec fields)))
 
 ;;; projection:
 

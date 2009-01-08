@@ -25,13 +25,12 @@
 ;   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns hoeck.rel.sql-servant
-  (:use hoeck.library
+  (:use [hoeck.rel :only (fields)]
+        hoeck.library
         hoeck.rel.sql-utils
         hoeck.rel.sql))
 
 (import '(java.sql SQLException Types))
-;(use 'hoeck.rel.test)
-;(def cur-qry (:query-fn ^derby-people))
 
 ;; DDL - sql-primitives
 
@@ -93,57 +92,13 @@
                                       temp-table-name))
          (drop-table temp-table-name))))
 
+
+
+(comment
+
 (hoeck.rel/group-by (project (probe-table 'people) '()))
 (hoeck.rel/fields (probe-table 'people))
 (probe-table 'people)
-
-{:types  [:int :string :string :int], 
- :precs  [10 100 100 10], 
- :fields [id name vorname address-id]}
-
-
-
-(create-table 'foo-1 'a :int)
-(*query-fn* :command "insert into foo_1 (a) values (1)")
-(*query-fn* :command "insert into foo_1 (a) values (2)")
-(*query-fn* :command "insert into foo_1 (a) values (3)")
-
-(*query-fn* "select * from foo_1")
-
-(seq (create-table 'foo-2 'b :int 'a :int))
-(seq (*query-fn* :command "insert into foo_2 (a) select * from foo_1"))
-(*query-fn* "select b,a from foo_2")
-(seq (drop-table 'foo-2))
-
-
-(alter-table 'people 'geb-datum :date)
-
-(*query-fn* :command "create table people7213 (id integer, name varchar(0), vorname varchar(0), address_id integer)")
-
-
-
-
-
-
-
-        types (vec (map
-
-
-
-[name id]
-[:int :int]
-(name :string vorname :string)
-[name    id   vorname]
-[:string :int :string]
-
-
--> [name 
-
-    ;; create temp table
-    (create-table (str table-name (gensym)) fields types)
-  )
-
-(comment
 
 (def *query-fn* (:query-fn ^hoeck.rel.test/derby-people))
 
@@ -175,6 +130,6 @@
  ["CLOB" 2005 2147483647 "'" "'" "length" 1 true 1 nil false nil "CLOB" nil nil nil nil nil]
  ["XML" 2009 nil nil nil nil 1 true 0 false false false "XML" nil nil nil nil nil]]
 
-(probe-table 
+(probe-table )
 
 )
