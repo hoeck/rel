@@ -73,6 +73,18 @@ Defaults to (= n 2)."
 
 (defn odd-elements "Return al odd elements of a seq, eql to (take-nth 2 (rest s))." [s] (take-nth 2 (rest s)))
 
+
+(defn partition-with
+  "Returns a lazy sequence of lists by splitting the original seq on 
+  elements where pred returns true. Except for the first list all nested
+  lists have a matched element as their head."
+  [pred seq]
+  ((fn part-fn [c]
+     (cond (nil? c) nil           
+           :else (let [[f r] (split-with (complement pred) (rest c))]
+                   (lazy-cons (list* (first c) f) (part-fn r)))))
+     seq))
+
 ;;; flatten one level of the list: (flat1 '((1) (2 3) (4))) -> (1 2 3 4)
 (defn flat1
   "flatten one level of the seq:
@@ -380,6 +392,47 @@ on keywords without `:'"
   [thing]
   `(let [maybe-coll# ~thing]
      (if (and (coll? maybe-coll#) (empty? maybe-coll#)) nil maybe-coll#)))
+
+
+
+(defn read-relation-matrix-literal
+  "read a matrix literal and return a hashmap mapping pairs of columnnames
+  to cell values, useful for literal definitions of sets, functions, relations.
+  The name of the relation is stored as the results metadata.
+  See hoeck.library/sample-matrix-relation for an example."
+  [src]
+  (let [[heading, body] (split-with (complement #(re-matches #"={3,}" (str %))) (remove #(or (= % '|) (= % '||)) src))
+        relation-name (first heading)
+        horiz-cols (rest heading)
+        horiz-arity (count horiz-cols)
+        rows (into {} (map #(vector (first %) (rest %)) (partition (inc horiz-arity) (rest body))))
+        result (reduce #(into % (map (fn [c h] [[(key %2) h] c]) (val %2) horiz-cols)) {} rows)]
+    (with-meta result {'relation-matrix-literal-name relation-name})))
+
+(defmacro relation-matrix-literal 
+  "Expand into a form which calls read-relation-matrix-literal with the
+  given body. Do the neccesary quoting of `|', `||' and `===*' (table drawing characters).
+  See hoeck.library/sample-matrix-relation for an example."
+  [& body]
+  (let [quoted-form
+          (cond (and (list? body) (= (first body) 'quote))
+                  body
+                :else
+                  (map #(if (and (symbol? %) (or ('#{| ||} %) (re-matches #"={3,}" (str %))))
+                          (list 'quote %)
+                          %)
+                       body))]
+    `(read-relation-matrix-literal (list ~@quoted-form))))
+
+(def sample-matrix-relation
+     (let [a :alpha
+           b :beta]            
+       (relation-matrix-literal
+         'my-name || a | b
+         ==================
+         a        || a | a
+         b        || a | b)))
+
 
 ; (defn keyword-to-symbol
 ;   "make a symbol from the corresponding keyword"
