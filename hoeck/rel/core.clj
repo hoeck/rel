@@ -44,6 +44,19 @@
   ([relation]
    (:fields (meta relation))))
 
+(defn constraints
+  "Return a map of constriants and their values."
+  [relation]
+  {:primary-key (into [] (filter #(:primary-key (meta %)) (fields relation))})
+;;  (reduce #(let [c (select-keys (meta %2) '(:primary-key))] (if (empty? c) % (conj % [%2 c]))) {} (fields relation)))
+
+
+
+(defn primary-key-vec
+  "Return a vector of the fields in the primary-key or nil if there isn't one."
+  [relation]
+  (empty?->nil (vec (filter #(:primary-key (meta %)) (fields relation)))))
+
 (defn get-entry-accesssor
   "Return a function that accesses the field NUM of RELATION."
   [relation num]
@@ -115,7 +128,7 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 (defn multi-index-lookup
   "look up multiple names using their single indexes"
   ([index-fn positions vals]
-     (apply set-intersection (map #(set (index-fn %1 %2)) positions vals))))
+     (empty?->nil (apply set-intersection (map #(set (index-fn %1 %2)) positions vals)))))
 
 (defn lookup
   "given one or more keys at pos, find index-entries using index-fn."
@@ -199,7 +212,6 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 (defmacro fproxy-relation [meta methods]
   `(hoeck.rel.Relation. ~meta ~methods))
 
-
 (def *make-relation-default-initargs* {})
 
 (defmulti make-relation (fn [dispatch-arg & initargs] 
@@ -220,6 +232,10 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
   (let [data (partition arity data)
         fields (vec (first data))]
     (make-relation (into #{} (map vec (rest data))) :fields fields)))
+
+(defmethod make-relation clojure.lang.IPersistentVector
+  [fields & data]
+  (make-relation (set (map vec (partition (count fields) data))) :fields fields))
 
 (defn empty-relation [fields]
   (make-relation #{} :fields (vec fields)))
@@ -332,6 +348,8 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 (defmulti difference two-op-dispatch-fn)
 (defmulti intersection two-op-dispatch-fn)
 
+;; need: merge or pkey-aware union!!
+
 ;; default dispatch
 (defmacro def-default-method
   "Expands to a defmethod form which defines the default dispatch method (on true) for 
@@ -348,12 +366,13 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 ; how to calculate the union with other sets?
 #{[a 1] [b 2]} U #{[b 3]} -> #{[a 1] [b 2] [b 3]}
 ; but with #0 as primary-key
-#{[a 1] [b 2]} U #{[b 3]} -> either #{[a 1] [b 2]} or #{[a 1] [b 3]} ??
+#{[a 1] [b 2]} U #{[b 3]} -> either #{[a 1] [b 2]} or #{[a 1] [b 3]} ??  ;-> merge ?
 
 ; consequence of pkey: 
 [b 1] == [b 2] == [b ?x]
 ; whereas without
 [b 1] != [b 2] != [b ?X]
+; NO!
 
 ; affects: all ops except select
 ;project: remove the pkey tag if pkey field is not projected
@@ -369,6 +388,20 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 
 ; other approaches: (make-relation bla :fields '[id ...] :primary-key [id])
 
+(make-constrained-relation ...)
+;-> internal: {id [name city]}
+;external: implements clojure.lang.IPersistentSet or hoeck.rel.Relation
+
+;pseudo-clojure:
+;(let [data '{1 [franz kafka], 
+;             2 [frank codd],
+;             3 [erich kaestner]}
+;      index-fn (fn [] (if `index-of-id-wanted') data, normal index on "set" of data)]
+;(fproxy-relation `[meta :index index-fn :tag clojure-constrained-relation]'
+;  {'seq (fn [] (map #(vector `(val %) (key %) (val %)') data))
+;   'count (fn [] (count data))
+;   'contains (fn [tup] (if (data `id-extracted-from-tup') true false))
+;   'get (fn [tup] like^^^^^)})
 
 ; [. * .]
 ; [* * *] <- selection
