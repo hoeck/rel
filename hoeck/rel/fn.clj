@@ -113,8 +113,8 @@
 
 (defmethod rename :clojure
   [R name-newname-pairs]
-  (let [rename (apply hash-map name-newname-pairs)
-        new-fields (map #(or (rename %) %) (fields R))]
+  (let [rename (apply hash-map name-newname-pairs)        
+        new-fields (map #(or (if-let [r (rename %)] (with-meta r (meta %))) %) (fields R))]
     (with-meta R
       (merge (meta R)
              {:fields (vec new-fields)}))))
@@ -189,27 +189,63 @@
 ;;; union {id c-id name c-name}
 (defmethod union :clojure
   ([R S] 
-     (let [seq-fn (fn [_] (lazy-cat R (filter (complement R) S)))
+     (let [indexR (index R), indexS (index S)
+           
+           [conR conS] (map constraints [R S])
+             
+           primary-key-fields (:primary-key (or conR conS))
+           primary-key (map #(pos (fields (if conR R S)) %) primary-key-fields)
+
+           ; = for 2 tuples, taking a primary key into account
+           tupl= (if primary-key 
+                   (fn [a b] (every? true? (map #(= (a %) (b %)) primary-key)))
+                   =)
+           
+           extract-pkey (if primary-key
+                          (fn [tup] (subnvec tup primary-key))
+                          identity)
+
+           ; lookup in relation S taking pkey into account
+           containsS (if primary-key
+                       (if-let [p (single? primary-key)]
+                         (fn [tup] (indexS p (nth tup p)))
+                         (fn [tup] (multi-index-lookup indexS primary-key (extract-pkey tup))))
+                       S)
+           
+           pkey-union-seq (fn [r s] (lazy-cat s (remove containsS r)))
+           
+           seq-fn (fn [_] (pkey-union-seq R S))
            count-fn (fn [this] (.count (.seq this)))
-           get-fn (fn [_ key] (or (R key) (S key)))
+           get-fn (fn [_ key] (or (S key) (and (not (containsS key)) (R key))))
            contains-fn (fn [this key] (if (.get this key) true false))
 
-           indexR (index R), indexS (index S)
-           
-           m {:index (fn ([n] (let [indexS-at-n (indexS n)
-                                    indexR-at-n (indexR n)]
-                                (into {} 
-                                      (concat (map #(vector (key %) (set/union (indexS-at-n (key %)) (val %))) indexR-at-n)
-                                              (filter #(not (contains? indexR-at-n (key %))) indexS-at-n)))))
-                         ([n v] (set/union (indexR n v) (indexS n v))))}
+           index-fn (fn ([n] 
+                           ; for each value in index s, 
+                           ; look if there is a value in index r
+                           ; if so do a union r,s
+                           ; add all keys to index which contents are not in S (via containsS)
+                           (into {} (concat (map (fn [[k s]]
+                                                   [k
+                                                    (if-let [r ((indexR n) k)]
+                                                      (set (pkey-union-seq r s))
+                                                      s)])
+                                                 (indexS n))
+                                            (remove nil?
+                                                    (map (fn [[k r]]
+                                                           (if-not ((indexS n) k)
+                                                             [k (empty?->nil (set (remove containsS r)))]))
+                                                         (indexR n))))))
+                        ([n v]
+                           (set (let [r (indexR n v)
+                                      s (indexS n v)]
+                                  (pkey-union-seq r s)))))
+
            ]
-       (fproxy-relation (merge (meta R) m)
+       (fproxy-relation (merge (meta R) {:index index-fn})
          {'seq seq-fn
           'count count-fn
           'get get-fn
           'contains contains-fn}))))
-
-(set/intersection #{:a 3 :c} #{1 :a 3})
 
 (defmethod difference :clojure
   [R S]
@@ -235,8 +271,5 @@
 (defmethod intersection :clojure
   [R S]
   (difference R (difference R S)))
-
-
-
 
 
