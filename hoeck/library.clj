@@ -29,7 +29,8 @@
 ;;; | library for clojure |
 ;;; +---------------------+
 
-(ns hoeck.library)
+(ns hoeck.library
+  (:use clojure.contrib.fcase))
 
 ;;; +---------------------+               
 ;;; | basic lisp stuff    |               
@@ -177,6 +178,8 @@ Defaults to (= n 2)."
   "The opposite of get, returns the first index of a value in a seq."
   [s value]
   (first (filter identity (map #(and (= value %) %2) (seq s) (counter)))))
+
+(defn single? [k] (when (not (rest k)) (first k)))
 
 ;(defn atom?
 ;  "Returns logical true if x is an atom. An atom here is every expression
@@ -443,8 +446,39 @@ on keywords without `:'"
 ;;; | Pretty Printing | ;; broken
 ;;; +-----------------+
 
-;(defn make-string [s n]
-;  (if (> n 1) (apply str (take n (repeat s))) s))
+(defn make-string
+  "Make a String by concatenating string s n times."
+  [s n]
+  (apply str (take n (repeat s))))
+
+(defn str-align
+  "Align a string to the given length either :left :right or :center(ed).
+  If s is bigger than size, just return s."
+  ([s size] (str-align s size :right))
+  ([s size align]
+   (let [l (count s)
+         space (make-string " " (- size l))] 
+     (if (>= l size) s
+         (case align
+           :left  (str s space)
+           :right (str space s)
+           :center (let [n (/ (- size l) 2)
+                         space-left (make-string " " (Math/floor  n))
+                         space-right (make-string " " (Math/ceil  n))]
+                     (str space-left s space-right)))))))
+
+(defn str-cut
+  "Return a string which is at least size long, append three dots if
+  s is longer than size."
+  ([s size] (str-cut s size "..."))
+  ([s size more-string]
+     (if (< size (count s))
+       (if (< size (count more-string))
+         (.substring more-string 0 size)  
+         (str (.substring s 0 (- size (count more-string))) more-string))
+       s)))
+
+
 
 ;;;; java.lang.System.out.println
 ;;(defn println [& r]

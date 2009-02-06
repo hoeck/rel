@@ -113,7 +113,15 @@
   [condition-object]
   (let [quoted-expr? #(and (list? %) (= (first %) 'quote))
         no-cut (fn [_] false)
+        ;; build various transformations consisting of 
+        ;; [cut-predicate, replacement-prepdicate, replacement-function]
         fields->fieldnames [quoted-expr? field-name #(name->sql (field-name %))]
+
+        ;; in clojure (str 'a 'b) in sql: (+ "a" "b")
+        clojure-str->sql-plus [quoted-expr?
+                               #(and (list? %) (= (first %) 'str))
+                               #(cons '+ (rest %))]
+
         infix->prefix [quoted-expr?
                        #(and (list? %) (contains? sql-condition-ops (first %)))
                        #((sql-condition-ops (first %)) %)]
@@ -127,10 +135,11 @@
                        string?
                        #(str "'" % "'")]]
     (print-str
+     ;; apply transformations to the source-form of the condition-object
      (reduce (fn [expr [cut pred f]]
                (walk-expr cut pred f expr))
              (first (condition-object))
-             [str-keywords str-symbols quote-strings fields->fieldnames infix->prefix]))))
+             [str-keywords str-symbols quote-strings fields->fieldnames clojure-str->sql-plus infix->prefix]))))
 
 (defmethod select :sql
   [relation condition]

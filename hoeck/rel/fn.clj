@@ -31,8 +31,8 @@
   (:use hoeck.rel.core hoeck.library clojure.contrib.fcase)
   (:import (clojure.lang MapEntry)))
 
-;(defn empty-relation [fields]
-;  (hoeck.rel.core/make-relation #{} :fields (vec fields)))
+(defn default-contains-fn [this key]
+  (if (.get this key) true false))
 
 ;;; projection:
 
@@ -50,36 +50,134 @@
     (fn ([n] (into {} (map (fn [e] [(key e), (set (map project-tuple-fn (val e)))]) (if-let [p (nth fields-sig n)] (index-fn p) {nil R}))))
         ([n v] (if-let [p (nth fields-sig n)] (set (map project-tuple-fn (index-fn p v))) (if (nil? v) R))))))
 
+(defn simple-projection
+  "A projection without any expressions other than field-names."
+  [R names]
+  (let [align? nil
+        fields (fields R)
+        index-fn (index R)
+        sig (generate-signature fields names);; signature: number -> number lookup
+        align? (or align? (some nil? sig)) ; align if new fields are introduced
+        sig (if align? sig (vec (sort sig)))]
+    (cond (empty? sig) nil
+          (= sig [nil]) (empty-relation names)
+          :else (let [project-tuple-fn (if-let [p (single? sig)]
+                                   #(nth % p)
+                                   (if align?
+                                     #(reduce (fn [ret cur] (conj ret (if cur (nth % cur)))) [] sig)
+                                     #(subnvec % sig)))
+                             
+                m {:index (project-index R sig project-tuple-fn)
+                   :fields (vec (if align? names (map fields sig)))}
+                             
+                seq-fn (fn [_] (map project-tuple-fn (seq R)))
+                count-fn (fn [this] (count R))
+                get-fn (fn [_ key] (if (multi-index-lookup index-fn sig key) key))]
+            (fproxy-relation (merge (meta R) m) 
+                             {'seq seq-fn,
+                              'count count-fn,
+                              'contains default-contains-fn
+                              'get get-fn })))))
+
+(def sample-project-expression
+     (list
+      ;; either a symbol/keyword denoting a field
+      'name
+      ;; or a condition-function
+      (condition (* *id *address-id))
+      ;; or a pair of one of the former expr plus the new field name
+      [(condition (str *name ", " *vorname)) 'name-string]))
+
+(defn parse-projection-expression
+  "Return a list of [condition new-field-name] pairs out of a
+  projection expression."
+  [expr]
+  (map #(cond (vector? %)
+                %                                    
+              (or (symbol? %) (keyword? %))
+                [(make-identity-condition %) %]
+              :else
+                ;; if no new name  given, use field1-field2-...-fieldn as new fieldname
+                [% (symbol (apply str (interpose "-" (:fields (%)))))])
+       expr))
+
+(defn advanced-projection
+  "A project which allows expressions as projections."
+  [R expr]
+  ; 1) get the list of expressions or symbols
+  ; 2) construct 3 vectors (as in simple-project)
+  ;    input-fields functions new-field-names
+  ; 3) create a function: tuple -> projected-tuple
+  ; 4) write the (lazy) projection implementation
+  ; 5 think about how to implement an index over the projected values
+  ;   (is this even possible on projected expressions?)
+  (let [fields (fields R)
+        input-fields (map #(:fields ((first %))) expr)
+        input-fields-pos (map #(map (partial pos fields) %) input-fields)
+        functions (map #((first %1) %2) expr input-fields)
+        new-field-names (vec (map second expr))
+
+        project-tuple (fn [tup] (vec (map #(%2 (subnvec tup %1))
+                                          input-fields-pos functions)))
+
+        ;; for now, enable index lookup only in the simple-projected fields
+        ;; (the fields projected with the identity-function)
+        lookupable-fields (set (map first (map :fields (filter #(= :identity (:type %)) (map #((first %)) expr)))))
+        ;; positions of the identity fields in the tuples of R, nil if field is not lookupable
+        lookup-fields-pos (vec (map #(if (and (lookupable-fields (first %1)) (not (rest %1))) (first %2) nil) input-fields input-fields-pos))
+        
+
+        nothing (println :idf lookupable-fields)
+        ;; ideally, we need the inverse function of project-tuple for index-projection and tuple lookup
+        ;; practically, we use only the identity-projected fields to built the
+        ;; new index and recalculate the complex-projected ones
+        unproject-tuple (fn [ptup] '???
+                          
+                          )
+
+        indexR (index R)
+
+        seq-fn (fn seq-fn [_] (map project-tuple R))
+        count-fn (fn count-fn [_] (count R))
+        get-fn (fn get-fn [_ tup] 
+                 (let [idx (multi-index-lookup indexR (filter identity lookup-fields-pos) (subnvec tup (filter lookup-fields-pos)))]
+                   (some #(= tup %) (map project-tuple idx))))
+        
+        projected-R (fproxy-relation (merge (meta R) {:fields new-field-names})
+                                     {'seq seq-fn
+                                      'count count-fn
+                                      'get get-fn
+                                      'contains default-contains-fn
+                                      })
+        
+        index-fn (fn index-fn
+                   ([p] 
+                      ;; is p in lookupable-fields?                      
+                      ;; (yes) get idx of p, map all tuples with project-tuple
+                      ;; (no) create index on p in projected relation
+                      (if-let [orig-pos (lookup-fields-pos p)]
+                        (into {} (map (fn [[k v]] [k (set (map project-tuple v))]) (indexR orig-pos)))
+                        (make-index-on-set projected-R #(nth % p))))
+                   ([p v]
+                      (if-let [orig-pos (lookup-fields-pos p)]
+                        (set (map project-tuple (indexR orig-pos v)))
+                        (set (filter #(= (nth % p) v) projected-R)))))
+        ]
+    (with-meta projected-R (merge (meta projected-R) {:index index-fn}))))
+
+
 (defmethod project :clojure
   ([_] (empty-relation))
-  ([R names] (project R names false))
-  ([R names align?] ;; align: reorder tuple-vectors; not compatible with relational algebra; question: why not use struct-maps???
-     (if (= (fields R) names) R ;; identity
-         (let [fields (fields R)
-               index-fn (index R)
-               sig (generate-signature fields names) ;; signature: number -> number lookup
-               align? (or align? (some nil? sig)) ; align if new fields are introduced
-               sig (if align? sig (vec (sort sig)))]
-           (cond (empty? sig) nil
-                 (= sig [nil]) (empty-relation names)
-                 :else (let [project-tuple-fn (if-let [p (single? sig)]
-                                                #(nth % p)
-                                                (if align?
-                                                  #(reduce (fn [ret cur] (conj ret (if cur (nth % cur)))) [] sig)
-                                                  #(subnvec % sig)))
-                             
-                             m {:index (project-index R sig project-tuple-fn)
-                                :fields (vec (if align? names (map fields sig)))}
-                             
-                             seq-fn (fn [_] (map project-tuple-fn (seq R)))
-                             count-fn (fn [this] (count R))
-                             get-fn (fn [_ key] (if (multi-index-lookup index-fn sig key) key))
-                             contains-fn (fn [this key] (if (.get this key) true false))]
-                         (fproxy-relation (merge (meta R) m) 
-                           {'seq seq-fn,
-                            'count count-fn,
-                            'contains contains-fn,
-                            'get get-fn })))))))
+  ([R exprs] 
+     ;; an expr is either a (hoeck.rel.core/condition ..) or a symbol or a keyword 
+     ;; or a [hoeck.rel.core/condition (or symbol keyword)]
+     (cond (= (fields R) exprs) 
+             R ; identity
+           (every? #(or (symbol? %) (keyword? %)) exprs)
+             (simple-projection R exprs)
+           :else
+             (advanced-projection R (parse-projection-expression exprs)))))
+
 
 ;;; selection:
 
@@ -87,8 +185,7 @@
   Condition is a function that returns :signature or :condition"
 (defmethod select :clojure
   [R condition-ctor]
-  (let [;;[expr, used-fields] (condition-ctor)
-        fields (fields R)
+  (let [fields (fields R)
         index-fn (index R)
         condition-fn (condition-ctor fields)
 
@@ -186,7 +283,7 @@
         'get get-fn
         'contains contains-fn})))
 
-;;; union {id c-id name c-name}
+
 (defmethod union :clojure
   ([R S] 
      (let [indexR (index R), indexS (index S)
@@ -239,7 +336,6 @@
                            (set (let [r (indexR n v)
                                       s (indexS n v)]
                                   (pkey-union-seq r s)))))
-
            ]
        (fproxy-relation (merge (meta R) {:index index-fn})
          {'seq seq-fn

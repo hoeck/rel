@@ -144,8 +144,8 @@
   [str-seq]
   (reduce #(str % ", " %2) str-seq))
 
-(def types (hoeck.rel/make-relation 4 ;<- arity
-  'type 'sql 'java-num 'default-precision
+(def types (hoeck.rel/make-relation
+  '[type sql java-num default-precision]
   :keyword "varchar" Types/VARCHAR 30
   :symbol "varchar" Types/VARCHAR 30
   :string "varchar" Types/VARCHAR 200
@@ -175,10 +175,8 @@
 (defn probe-resultset-r
   [rs]
   (let [{:keys [fields, types, precs]} (probe-resultset rs)]
-    (apply hoeck.rel/make-relation 3 
-           'field 'type 'prec
-           (mapcat list fields types precs))))
-
+    (apply hoeck.rel/make-relation '[nr #^{:primary-key true} field type prec]
+           (mapcat list (iterate inc 0) fields types precs))))
 
 (defn make-connection-fn
    "Return a function r with the following spec:

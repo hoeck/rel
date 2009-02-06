@@ -33,8 +33,6 @@
 
 ;; primitive accessors:
 
-(defn single? [k] (when (not (rest k)) (first k)))
-
 (defn index
   "Return the index of relation"
   ([relation]
@@ -47,10 +45,8 @@
 (defn constraints
   "Return a map of constriants and their values."
   [relation]
-  {:primary-key (into [] (filter #(:primary-key (meta %)) (fields relation))})
+  {:primary-key (into [] (filter #(:primary-key (meta %)) (fields relation)))})
 ;;  (reduce #(let [c (select-keys (meta %2) '(:primary-key))] (if (empty? c) % (conj % [%2 c]))) {} (fields relation)))
-
-
 
 (defn primary-key-vec
   "Return a vector of the fields in the primary-key or nil if there isn't one."
@@ -94,7 +90,7 @@
   ([v k & r]
      (reduce into-tuple (into-tuple v k) r)))
 
-(defn subnvec
+(defn subnvec ;; better name: project-vector ?
   "Return a vector consisting of elements at elements in v.
 ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
   [v elements]
@@ -108,7 +104,7 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
     v))
 
 (defn dissoc-vec
-  "Opposite of assoc for PersistentVector."
+  "Opposite of assoc for PersistentVector. Tries to use subvec if possible."
   [v i]
   (cond (= 0 i) (subvec v 1)
         (= (dec (count v)) i) (subvec v 0 (dec (count v)))
@@ -122,13 +118,16 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 
 (defn set-intersection
   "like clojure.set/intersection but may intersect more than 2 sets."
+  ([x] x)
   ([x y] (clojure.set/intersection x y))
   ([x y & z] (reduce clojure.set/intersection (list* x y z))))
 
 (defn multi-index-lookup
-  "look up multiple names using their single indexes"
+  "look up multiple fields using their single indexes"
   ([index-fn positions vals]
-     (empty?->nil (apply set-intersection (map #(set (index-fn %1 %2)) positions vals)))))
+     (if (rest positions)
+       (empty?->nil (apply set-intersection (map #(set (index-fn %1 %2)) positions vals)))
+       (index-fn (first positions) (first vals)))))
 
 (defn lookup
   "given one or more keys at pos, find index-entries using index-fn."
@@ -224,7 +223,12 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
   [data & initargs]
   (let [{:keys [fields]} (merge *make-relation-default-initargs* (apply hash-map initargs))
         relation-meta {:relation-tag :clojure :fields fields} ;; to come: sql, pivot, file, filesys??
-        compiled-relation (with-meta data relation-meta)]
+        ;compiled-relation (with-meta data relation-meta)
+        compiled-relation (fproxy-relation relation-meta
+                                           {'get (fn [_ k] (.get data k))
+                                            'count (fn [_] (.count data))
+                                            'seq (fn [_] (.seq data))
+                                            'contains (fn [this k] (if (.get this k) true false))})]
     (add-index compiled-relation)))
 
 (defmethod make-relation java.lang.Number
@@ -240,7 +244,9 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 (defn empty-relation [fields]
   (make-relation #{} :fields (vec fields)))
 
-;; condition
+
+
+;; conditions
 (defn make-coded-symbol-predicate
   "Given a regex and group number, return a function that returns the 
   matched group element group-nr on a given symbol."
@@ -251,10 +257,16 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 
 (def #^{:doc 
   "Return the fieldname of a symbol or nil of its not a field.
-  Fieldnames are symbols starting with `*' and ending with any other character than `*'."}
-     field-name (make-coded-symbol-predicate "^(\\*)([^\\*]*)$" 2))
+  Fieldnames are symbols starting with `*' and ending with any other character than `*'."
+        :arglists '([symbol])}
+     field-name (make-coded-symbol-predicate "^(\\*)([^\\*]+)$" 2))
 
 (def sample-expr '(or (= *name name) (= *address-id 100)))
+
+(defn make-field-symbol
+  "Make a field-naming symbol so that (field-name (make-field-name 'any-symbol))
+  always returns true."
+  [sym] (symbol (str "*" sym)))
 
 ;;; sql stuff
 (defn clj->sql-multiarg-op
@@ -285,7 +297,7 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
      sql-condition-ops
   (let [make-op-map (fn [op-expand-fn ops] (into {} (map #(vector %, op-expand-fn) ops)))]
     (merge (make-op-map clj->sql-2arg-op '(= < > not=))
-           (make-op-map clj->sql-multiarg-op '(and or)))))
+           (make-op-map clj->sql-multiarg-op '(and or - + * / str))))) ; use str as an alias for string concatenation *shudder*
 
 ;; condition-object
 (defn quote-condition-expression
@@ -306,11 +318,16 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
                                         e))]
     (quote-fields (quote-sql-ops expr))))
 
+
+;;;  The goal of this macro is to provide a function and a readable (and 
+;;;  transformable, to sql-infix) expression, both capturing the current
+;;;  environment (lexical scope) while preserving enough abstraction from
+;;;  the underlying relation implementation and reducing line noise."
 (defmacro condition
   "create a function which creates a condition function given
   a vector of columnnames of a particular relation.
   Calling the constructor without an arg will return the underlying
-  condition-expression."
+  condition-expression, the involved columns and additional properties."
   ([expr] `(condition ~'anonymous-condition ~expr))
   ([condition-name expr]
   (let [used-fields (collect-exprs field-name expr)
@@ -320,12 +337,31 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
         position-vars (take (count used-field-names) (repeatedly gensym))
         column-lookup-expansion (fn [field] `(pos ~fields '~field))]
     `(fn ~(symbol (str condition-name "-ctor"))
-      ([] [~(quote-condition-expression expr), '~used-field-names])
+      ([]
+         ;; Should throw an error if any operator is not in sql-condition-ops.
+         ;; Only if all operators used in expr are in sql-condition-ops the expr gets
+         ;; quoted correctly.
+         ;; If any operator is not in sql-condition-ops, then only introspection of the
+         ;; expr is not working, the condition-function-ctor and the
+         ;; condition-function are working anyway.
+         {:expr ~(quote-condition-expression expr), :fields'~used-field-names :type :user})
       ([~fields]
         (let ~(vec (mapcat #(list % (column-lookup-expansion %2)) position-vars used-field-names))
+          ;; should test that (every? #{~fields} used-fields), otherwise: ERROR
           (fn ~(symbol (str condition-name)) [~tuple]
             (let ~(vec (mapcat #(list %1 (list tuple %2)) used-fields position-vars))
               ~expr))))))))
+
+;; some special conditions
+(defn make-identity-condition 
+  "A condition which evaluates to the given field-name."
+  [field-name]
+  (fn ([] {:expr (make-field-symbol field-name), :fields (list field-name), :type :identity})
+      ([fields] ;; should test that field_name is included in fields,
+                ;; otherwise throw an error
+         (let [field-pos (pos fields field-name)]
+           (fn [tuple] (tuple field-pos))))))
+
 
 ;; relational algebra operations
 
@@ -348,7 +384,8 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 (defmulti difference two-op-dispatch-fn)
 (defmulti intersection two-op-dispatch-fn)
 
-;; need: merge or pkey-aware union!!
+;(defmulti order-by op-dispatch-fn)
+
 
 ;; default dispatch
 (defmacro def-default-method

@@ -108,12 +108,11 @@
         index-fn (fn index-fn
                    ([i] (into {} (map (fn [[k v]] [k (set (map tup->map v))]) (index i))))
                    ([i v] (set (map tup->map  (index v i)))))]
-    (rel-core/fproxy-relation (merge ^R {:index index-fn})
-     {'count (fn count [_] (count R))
-      'seq (fn seq [_] (map tup->map R))
-      'get (fn get [_ k] (.get R (vec (vals k))))})))
+    (map tup->map R)))
+;    (into #{} (map tup->map R))))
 
-;;; -> query by example; Applicable as a default .get method in fproxy-relation
+
+;;; -> query by example; Maybe as a default .get method in fproxy-relation
 (defn qbe 
   "Query by Example, utilizes the relational algebra."
   [R & args] ;; -> :name 'frieda :id 1
@@ -124,8 +123,76 @@
 ;          (query-by-hashmap R (apply hash-map args))))
 ;; --> query-by-hashmap, query-by-tuple
 
+(defn no-constraints
+  "Removes all constraints from relation R."
+  [R]
+  (let [fs (vec (map #(with-meta % (dissoc (meta %) :primary-key)) (fields R)))]
+    (with-meta R (assoc ^R :fields fs))))
+
+; define right outer join in terms of join union project and xproduct
+(defn right-outer-join [R S r s]
+  (let [j (join R S r s)]
+    (union (xproduct (difference R (project j (fields R)))
+                     (apply make-relation 
+                            (fields S)
+                            (take (-> S fields count) (repeat nil))))
+           j)))
+
+; define outer join in terms of join union project and xproduct
+(defn outer-join [R S r s]
+  (let [jr (join R S r s)
+        empty-r (apply make-relation (fields R) (take (-> R fields count) (repeat nil)))
+        xr (xproduct (difference R (project jr (fields R))) empty-r)
+
+        js (join S R s r)
+        empty-s (apply make-relation (fields S) (take (-> S fields count) (repeat nil)))
+        xs (xproduct empty-s (difference S (project js (fields S))))]
+    (union (union jr xr)
+           (union js xs))))
+
+
+
+
+(defn determine-column-sizes
+  "Given a relation R, return a list of column-sizes according to opts."
+  [R opts]
+  (let [max-col-widths (map #(reduce max (map count (map pr-str (project R (list %))))) (fields R))
+        pretty-col-widths (map (partial max (:min-colsize opts)) (map (partial min (:max-colsize opts)) max-col-widths))
+        amount (/ (- (reduce + pretty-col-widths) (:max-linesize opts))
+                  (count (filter (partial < (:min-colsize opts)) pretty-col-widths)))]
+    (if (< 0 amount)
+      (map #(max (:min-colsize opts) (- % amount)) pretty-col-widths)
+      pretty-col-widths)))
+
+(def *pretty-print-relation-opts* {:max-lines 30, :max-colsize 30, :max-linesize 70 :min-colsize 1})
+
+(defn pretty-print-relation
+  "Print a relation pretty readably to :writer (default *out*), try 
+  to align fields correctly while not to exceeding :max-linesize and
+  other opts."
+  [R & opts]
+  (cond (= (count (fields R)) 1)
+          (print (set R))
+        :else
+          (let [opts (as-keyargs opts (assoc *pretty-print-relation-opts* :writer *out*))
+                sizes (determine-column-sizes R opts)
+                pr-tupl (fn [t] (str "[" (apply str (interpose " " (map #(str-cut (str-align (pr-str %1) %2 (if (or (string? %1) (symbol? %1) (keyword? %1)) :left :right))
+                                                                                  %2) t sizes))) "]"))]
+            (binding [*out*(:writer opts)]
+              (print"#{")
+              (print (pr-tupl (first R)))
+              (doseq [r (rest R)]
+                (println)
+                (print (str "  " (pr-tupl r))))
+              (println "}")))))
+  
+;; establish default pretty-printing of relations, needs awareness for *print-** variables
+(defmethod print-method  hoeck.rel.Relation
+  [R, w]
+  (pretty-print-relation R :writer w))
+
 (def-lots-of-aliases
-  (rel-core project rename xproduct union intersection difference make-relation fields)
+  (rel-core project rename xproduct union intersection difference make-relation fields constraints)
   (iris with-empty-universe <- ?-))
 
 
