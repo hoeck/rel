@@ -84,13 +84,13 @@
   (for varchar 100 sql decl.) If a necessary precision-value is ommitted,
   the default one from sql-utils/types is used."
   [& sig]
-  (let [default-precisions (rel/group-by (rel/select (rel/project types '(type, default-precision)) *default-precision) 'type)]
-    (apply rel/make-relation '[nr #^{:primary-key true} field type prec]
-           (mapcat (fn [[name type-or-typedef] nr]
+  (let [default-precisions (rel/group-by (rel/select (rel/project-fn types '(type, default-precision)) *default-precision) 'type)]
+    (apply rel/make-relation '[pos #^{:primary-key true} field type prec]
+           (mapcat (fn [[field type-or-typedef] pos]
                      (let [[type prec] (if (vector? type-or-typedef)
                                          type-or-typedef
                                          [type-or-typedef, (default-precisions type-or-typedef)])]
-                       [nr field type prec]))
+                       [pos field type prec]))
                    (partition 2 sig) (iterate inc 0)))))
 
 (defn alter-table-types
@@ -107,9 +107,36 @@
                                                              (rel/as old-def 'old)
                                                              'field 'old-field)
                                                    '(old-nr field type prec))))]
-    new-def
+    new-def))
 
- (read-table-definition 'name [:int 1000] 'foo :int 'second-id :int)
+(read-table-definition 'name [:int 1000] 'foo :int 'second-id :int)
+
+(rel/project 
+ (rel/outer-join (read-table-definition 'name [:int 1000] 'foo :int 'second-id :int)
+                 (rel/as (probe-table 'people) 'old)
+                 'field
+                 'old-field)
+ [*old-nr 'old-nr]
+ 'field 'type 'prec)
+
+
+
+
+
+
+#{[1 name :int 1000]}
+
+:idf #{prec field type}
+#{[1 name :int 1000]}
+
+
+
+(rel/fields (read-table-definition 'name [:int 1000] 'foo :int 'second-id :int))
+#{[2 second-id :int  nil]
+  [1 foo       :int  nil]
+  [0 name      :int 1000]}
+
+
  'old-field 'field)
     (rel/project (rel/outer-join 
                   change-def
@@ -118,6 +145,13 @@
                  '(old-nr field type prec))))
 
 (alter-table-types 'people 'name [:int 1000] 'foo :int 'second-id :int)
+#{[      nil     nil nil   0]
+  [      nil     nil nil   3]
+  [      nil     nil nil   2]
+  [name      :string 100   0]
+  [second-id :int    nil nil]
+  [foo       :int    nil nil]}
+
 #{[name      :int 1000   1]
   [second-id :int  nil nil]
   [foo       :int  nil nil]}
@@ -149,9 +183,9 @@ result:
   (rel/as (probe-table 'people) 'old)
   (read-table-definition 'name [:int 1000] 'foo :int 'second-id :int)
   'old-field 'field)]
-  x)
+  (rel/fields x))
 
-     X   Y         Z   A   B     C   D        E       F
+[old-nr old-field old-type old-prec nr field type prec]
 #{[nil        nil     nil  nil   2 second-id :int    nil]
   [nil        nil     nil  nil   1 foo       :int    nil]
   [  0 name       :int    1000   1 name      :string 100]
@@ -159,11 +193,23 @@ result:
   [  3 address-id :int      10 nil       nil     nil nil]
   [  2 vorname    :string  100 nil       nil     nil nil]}
 
+(project x '([nr (or *old-nr *nr)]
+             [field (or *old-field *field)]
+             [
+
 (merge-fields relation fields merge-condition
 
+(merge-fields x (or *name *old-name) 'name)
+
+(project
+
+projection: name, old-name -> name
 
 
+(defn merge-fields [R merge-condition field]
+  (
 
+(if (= *name *alter-name) *name *old-name)
 
 (rel/join 
  (rel/as (probe-table 'people) 'old)
@@ -172,9 +218,6 @@ result:
 #{[1 name :string 100 0 name :int 1000]}
 
 
-
-
-(defn conditional-project [R fields condition]
 
 
 ;; what to do? first class handling of columns in sql-tables
@@ -232,7 +275,7 @@ result:
 ((hoeck.rel.core/index 
   (hoeck.rel.core/union
    (probe-table 'people)
-   (rel/make-relation '[nr field type prec] 2 'vorname :string 1000)))
+   (rel/make-relation '[nr field type prec] 2 'vorname :string 1000))
  3 100)
 ))
 
@@ -299,5 +342,19 @@ nil
  ["XML" 2009 nil nil nil nil 1 true 0 false false false "XML" nil nil nil nil nil]]
 
 (probe-table )
+
+(*query-fn* "select id  from people ")
+
+
+
+
+
+
+
+
+
+
+
+
 
 )

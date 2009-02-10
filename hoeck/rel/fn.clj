@@ -52,9 +52,9 @@
 
 (defn simple-projection
   "A projection without any expressions other than field-names."
-  [R names]
-  (let [align? nil
-        fields (fields R)
+  ([R names] (simple-projection R names false))
+  ([R names align?] ;; align: for internal use in the set-operations only
+  (let [fields (fields R)
         index-fn (index R)
         sig (generate-signature fields names);; signature: number -> number lookup
         align? (or align? (some nil? sig)) ; align if new fields are introduced
@@ -77,7 +77,7 @@
                              {'seq seq-fn,
                               'count count-fn,
                               'contains default-contains-fn
-                              'get get-fn })))))
+                              'get get-fn }))))))
 
 (def sample-project-expression
      (list
@@ -126,8 +126,6 @@
         ;; positions of the identity fields in the tuples of R, nil if field is not lookupable
         lookup-fields-pos (vec (map #(if (and (lookupable-fields (first %1)) (not (rest %1))) (first %2) nil) input-fields input-fields-pos))
         
-
-        nothing (println :idf lookupable-fields)
         ;; ideally, we need the inverse function of project-tuple for index-projection and tuple lookup
         ;; practically, we use only the identity-projected fields to built the
         ;; new index and recalculate the complex-projected ones
@@ -284,9 +282,23 @@
         'contains contains-fn})))
 
 
+
+(defn make-set-compatible-fields
+  ""
+  [fields-R fields-S]
+  (let [cR (count fields-R)
+        cS (count fields-S)]
+    (cond (< cS cR)
+            fields-R
+          (<= cR cS)
+            fields-S)))
+
 (defmethod union :clojure
-  ([R S] 
-     (let [indexR (index R), indexS (index S)
+  ([R S]     
+     (let [;[R, S] (let [f (make-set-compatible-fields (fields R) (fields S))]
+           ;         [(project R f), (project S f)])
+                      
+           indexR (index R), indexS (index S)
            
            [conR conS] (map constraints [R S])
              

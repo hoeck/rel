@@ -55,7 +55,7 @@
 
 (defn select-fn
   [R condition]
-  (rel-core/check-fields! R (second (condition)))
+  (rel-core/check-fields! R (:fields (condition)))
   (rel-core/select R condition))
 
 (defmacro select 
@@ -70,6 +70,15 @@
   "convienience macro around select."
   [R condition]
   `(select-fn ~R (rel-core/condition ~condition)))
+
+(def project-fn rel-core/project)
+
+(defmacro project
+  [R & exprs]
+  `(project-fn ~R (list ~@(map #(if (or (keyword? %) (and (symbol? %) (not (rel-core/field-name %))))
+                                  % 
+                                  `(rel-core/condition ~%))
+                               exprs))))
 
 (defn join
   "multiple-relation join"
@@ -142,21 +151,22 @@
 (defn outer-join [R S r s]
   (let [jr (join R S r s)
         empty-r (apply make-relation (fields R) (take (-> R fields count) (repeat nil)))
-        xr (xproduct (difference R (project jr (fields R))) empty-r)
+        xr (xproduct (difference R (project-fn jr (fields R))) empty-r)
 
         js (join S R s r)
         empty-s (apply make-relation (fields S) (take (-> S fields count) (repeat nil)))
-        xs (xproduct empty-s (difference S (project js (fields S))))]
+        xs (xproduct empty-s (difference S (project-fn js (fields S))))]
+    (doseq [x [jr empty-r xr js empty-s xs]]
+      (println x))
     (union (union jr xr)
            (union js xs))))
 
 
-
-
+;; pretty printing
 (defn determine-column-sizes
   "Given a relation R, return a list of column-sizes according to opts."
   [R opts]
-  (let [max-col-widths (map #(reduce max (map count (map pr-str (project R (list %))))) (fields R))
+  (let [max-col-widths (map #(reduce max (map count (map pr-str (project-fn R (list %))))) (fields R))
         pretty-col-widths (map (partial max (:min-colsize opts)) (map (partial min (:max-colsize opts)) max-col-widths))
         amount (/ (- (reduce + pretty-col-widths) (:max-linesize opts))
                   (count (filter (partial < (:min-colsize opts)) pretty-col-widths)))]
@@ -191,9 +201,13 @@
   [R, w]
   (pretty-print-relation R :writer w))
 
+
+
+
 (def-lots-of-aliases
-  (rel-core project rename xproduct union intersection difference make-relation fields constraints)
+  (rel-core rename xproduct union intersection difference make-relation fields constraints)
   (iris with-empty-universe <- ?-))
+
 
 
 ;; sql stuff needs hoeck.rel

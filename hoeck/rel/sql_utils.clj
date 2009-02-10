@@ -175,7 +175,7 @@
 (defn probe-resultset-r
   [rs]
   (let [{:keys [fields, types, precs]} (probe-resultset rs)]
-    (apply hoeck.rel/make-relation '[nr #^{:primary-key true} field type prec]
+    (apply hoeck.rel/make-relation '[pos #^{:primary-key true} field type prec]
            (mapcat list (iterate inc 0) fields types precs))))
 
 (defn make-connection-fn
