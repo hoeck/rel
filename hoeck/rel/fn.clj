@@ -52,8 +52,8 @@
 
 (defn simple-projection
   "A projection without any expressions other than field-names."
-  ([R names] (simple-projection R names false))
-  ([R names align?] ;; align: for internal use in the set-operations only
+  ([R names] (simple-projection R names true)) ;; undecided about align yet
+  ([R names align?]
   (let [fields (fields R)
         index-fn (index R)
         sig (generate-signature fields names);; signature: number -> number lookup
@@ -61,23 +61,21 @@
         sig (if align? sig (vec (sort sig)))]
     (cond (empty? sig) nil
           (= sig [nil]) (empty-relation names)
-          :else (let [project-tuple-fn (if-let [p (single? sig)]
-                                   #(nth % p)
-                                   (if align?
-                                     #(reduce (fn [ret cur] (conj ret (if cur (nth % cur)))) [] sig)
-                                     #(subnvec % sig)))
+          :else (let [project-tuple-fn (if align?
+                                         #(reduce (fn [ret cur] (conj ret (if cur (nth % cur)))) [] sig)
+                                         #(subnvec % sig))
                              
-                m {:index (project-index R sig project-tuple-fn)
-                   :fields (vec (if align? names (map fields sig)))}
+                      m {:index (project-index R sig project-tuple-fn)
+                         :fields (vec (if align? names (map fields sig)))}
                              
-                seq-fn (fn [_] (map project-tuple-fn (seq R)))
-                count-fn (fn [this] (count R))
-                get-fn (fn [_ key] (if (multi-index-lookup index-fn sig key) key))]
-            (fproxy-relation (merge (meta R) m) 
-                             {'seq seq-fn,
-                              'count count-fn,
-                              'contains default-contains-fn
-                              'get get-fn }))))))
+                      seq-fn (fn [_] (map project-tuple-fn (seq R)))
+                      count-fn (fn [this] (count R))
+                      get-fn (fn [_ key] (if (multi-index-lookup index-fn sig key) key))]
+                  (fproxy-relation (merge (meta R) m) 
+                                   {'seq seq-fn,
+                                    'count count-fn,
+                                    'contains default-contains-fn
+                                    'get get-fn}))))))
 
 (def sample-project-expression
      (list
@@ -102,7 +100,7 @@
        expr))
 
 (defn advanced-projection
-  "A project which allows expressions as projections."
+  "A project which allows expressions as projections"
   [R expr]
   ; 1) get the list of expressions or symbols
   ; 2) construct 3 vectors (as in simple-project)
@@ -133,13 +131,17 @@
                           
                           )
 
-        indexR (index R)
+        indexR (index R)        
 
-        seq-fn (fn seq-fn [_] (map project-tuple R))
+        set-data (delay (set (map project-tuple R)))
+
+        seq-fn (fn seq-fn [_] (seq (force set-data)))
         count-fn (fn count-fn [_] (count R))
-        get-fn (fn get-fn [_ tup] 
-                 (let [idx (multi-index-lookup indexR (filter identity lookup-fields-pos) (subnvec tup (filter lookup-fields-pos)))]
-                   (some #(= tup %) (map project-tuple idx))))
+        get-fn (fn get-fn [_ tup]
+                 (if (not (empty? lookupable-fields))
+                   (let [idx (multi-index-lookup indexR (filter identity lookup-fields-pos) (subnvec tup (filter identity lookup-fields-pos)))]
+                     (some #(= tup %) (map project-tuple idx)))
+                   ((force set-data) tup)))
         
         projected-R (fproxy-relation (merge (meta R) {:fields new-field-names})
                                      {'seq seq-fn
@@ -303,7 +305,7 @@
            [conR conS] (map constraints [R S])
              
            primary-key-fields (:primary-key (or conR conS))
-           primary-key (map #(pos (fields (if conR R S)) %) primary-key-fields)
+           primary-key (empty?->nil (vec (map #(pos (fields (if conR R S)) %) primary-key-fields)))
 
            ; = for 2 tuples, taking a primary key into account
            tupl= (if primary-key 
@@ -317,8 +319,8 @@
            ; lookup in relation S taking pkey into account
            containsS (if primary-key
                        (if-let [p (single? primary-key)]
-                         (fn [tup] (indexS p (nth tup p)))
-                         (fn [tup] (multi-index-lookup indexS primary-key (extract-pkey tup))))
+                         (fn [tup] (empty?->nil (indexS p (nth tup p))))
+                         (fn [tup] (empty?->nil (multi-index-lookup indexS primary-key (extract-pkey tup)))))
                        S)
            
            pkey-union-seq (fn [r s] (lazy-cat s (remove containsS r)))

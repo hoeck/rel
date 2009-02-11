@@ -74,22 +74,33 @@
 (def project-fn rel-core/project)
 
 (defmacro project
+  "Convienience macro for the project operation."
   [R & exprs]
-  `(project-fn ~R (list ~@(map #(if (or (keyword? %) (and (symbol? %) (not (rel-core/field-name %))))
-                                  % 
-                                  `(rel-core/condition ~%))
+  `(project-fn ~R (list ~@(map #(cond (or (keyword? %) (and (symbol? %) (rel-core/field-name %)))
+                                        `'~(rel-core/field-name %)
+                                      (vector? %)
+                                        `[(rel-core/condition ~(first %)), '~(rel-core/field-name (second %))] 
+                                      :else 
+                                        `(rel-core/condition ~%))
                                exprs))))
 
-(defn join
-  "multiple-relation join"
-  ([R S r s] (rel-core/join R S r s))
-  ([R S r s & more] (if (<= 3 (count more))
-                      (let [[T j t & more] more] 
-                        (apply join (rel-core/join R S r s) T j t more))
-                      (throw (java.lang.IllegalArgumentException. "wrong number of arguments to join")))))
+;(defn join
+;  "multiple-relation join"
+;  ([R S r s] (rel-core/join R S r s))
+;  ([R S r s & more] (if (<= 3 (count more))
+;                      (let [[T j t & more] more] 
+;                        (apply join (rel-core/join R S r s) T j t more))
+;                      (throw (java.lang.IllegalArgumentException. "wrong number of arguments to join")))))
 
+(defn left-join
+  "simple left-join implementation using (right) join and project."
+  [R S r s]
+  (let [join-S-R (join S R s r)
+        join-fields (concat (fields R) (fields S))]
+    (project-fn join-S-R (map rel-core/make-identity-condition join-fields))))
+    
 (defn group-by
-  "Return a hasmap of field-values to sets of tuples 
+  "Return a hasmap of field-values to sets of tuples
   where they occur in relation R. (aka sql-group by or index)
   sets/ and tuples may be removed if not necessary (one-element set/tuple)."
   ([R field]
@@ -153,23 +164,30 @@
         empty-r (apply make-relation (fields R) (take (-> R fields count) (repeat nil)))
         xr (xproduct (difference R (project-fn jr (fields R))) empty-r)
 
-        js (join S R s r)
+        js (left-join R S r s)
         empty-s (apply make-relation (fields S) (take (-> S fields count) (repeat nil)))
         xs (xproduct empty-s (difference S (project-fn js (fields S))))]
-    (doseq [x [jr empty-r xr js empty-s xs]]
-      (println x))
     (union (union jr xr)
            (union js xs))))
-
 
 ;; pretty printing
 (defn determine-column-sizes
   "Given a relation R, return a list of column-sizes according to opts."
   [R opts]
-  (let [max-col-widths (map #(reduce max (map count (map pr-str (project-fn R (list %))))) (fields R))
-        pretty-col-widths (map (partial max (:min-colsize opts)) (map (partial min (:max-colsize opts)) max-col-widths))
-        amount (/ (- (reduce + pretty-col-widths) (:max-linesize opts))
-                  (count (filter (partial < (:min-colsize opts)) pretty-col-widths)))]
+  (let [max-col-widths (map #(pipe (project-fn R (list %))
+                                   (map pr-str)
+                                   (map count)
+                                   (map (partial + -2))
+                                   (reduce max))
+                            (fields R))
+        pretty-col-widths (pipe max-col-widths
+                                (map (partial min (:max-colsize opts)))
+                                (map (partial max (:min-colsize opts))))
+        small-fields-count (count (filter (partial <= (:min-colsize opts)) pretty-col-widths))
+        amount (if (< small-fields-count 0)
+                 (/ (- (reduce + pretty-col-widths) (:max-linesize opts))
+                    small-fields-count)
+                 0)]
     (if (< 0 amount)
       (map #(max (:min-colsize opts) (- % amount)) pretty-col-widths)
       pretty-col-widths)))

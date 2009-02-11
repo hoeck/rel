@@ -125,9 +125,7 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 (defn multi-index-lookup
   "look up multiple fields using their single indexes"
   ([index-fn positions vals]
-     (if (rest positions)
-       (empty?->nil (apply set-intersection (map #(set (index-fn %1 %2)) positions vals)))
-       (index-fn (first positions) (first vals)))))
+     (empty?->nil (apply set-intersection (map #(set (index-fn %1 %2)) positions vals)))))
 
 (defn lookup
   "given one or more keys at pos, find index-entries using index-fn."
@@ -379,7 +377,7 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 (defmulti select op-dispatch-fn)
 (defmulti rename op-dispatch-fn)
 (defmulti xproduct two-op-dispatch-fn)
-(defmulti join two-op-dispatch-fn)
+(defmulti join two-op-dispatch-fn) ;; right inner join
 (defmulti union two-op-dispatch-fn)
 (defmulti difference two-op-dispatch-fn)
 (defmulti intersection two-op-dispatch-fn)
