@@ -176,10 +176,40 @@ Defaults to (= n 2)."
 
 (defn pos
   "The opposite of get, returns the first index of a value in a seq."
-  [s value]
-  (first (filter identity (map #(and (= value %) %2) (seq s) (counter)))))
+  [coll value]
+  (first (filter identity (map #(and (= value %) %2) (seq coll) (counter)))))
 
 (defn single? [k] (when (not (rest k)) (first k)))
+
+;; taken from: http://groups.google.com/group/clojure/browse_thread/thread/66ff0b89229be894/2a6ea0196efaa4ec#2a6ea0196efaa4ec
+(defmacro pipe
+  "Threads the expr through the forms. Inserts x as the
+  last item in the first form, making a list of it if it is not a
+  list already. If there are more forms, inserts the first form as the
+  last item in second form, etc."
+  ([x form] (if (seq? form)
+              `(~(first form) ~@(rest form) ~x)
+              (list form x)))
+  ([x form & more] `(pipe (pipe ~x ~form) ~@more)))
+;; example: 
+;;   (take 3 (filter odd? (range 1 20))) == (pipe (range 1 20) (filter odd?) (take 3))
+
+
+;; taken from: http://groups.google.com/group/clojure/browse_thread/thread/66ff0b89229be894/2a6ea0196efaa4ec#2a6ea0196efaa4ec
+(defmacro let->
+   "Provide a name that will be bound to the result of the first form.
+   For each additional form, the variable will be
+   used in the invocation, and then rebound to the result of the form."
+   [varname start & forms]
+   (let [fn-args `[~varname]
+         wrapped (map (fn [form] `(fn ~fn-args ~form)) forms)]
+     (reduce
+           (fn [acc func] `(~func ~acc))
+           start
+           wrapped)))
+;; example: 
+;;   (take 3 (filter odd? (range 1 20))) == (let-> X (range 1 20) (filter odd? X) (take 3 X))
+
 
 ;(defn atom?
 ;  "Returns logical true if x is an atom. An atom here is every expression
