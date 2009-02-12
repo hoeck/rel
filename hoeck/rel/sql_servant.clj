@@ -93,132 +93,24 @@
                        [pos field type prec]))
                    (partition 2 sig) (iterate inc 0)))))
 
-(defn alter-table-types
-  "Alter the arity or types of a table on *query-fn*. For specifying 
-  table definitions see read-table-definition."
+
+(defn generate-table-definition
   [table-name & table-definition]
   (let [table-name (name->sql table-name)
-        old-def (probe-table table-name)
-        change-def (apply read-table-definition table-definition)
-        new-def (rel/union old-def
-                           (rel/union change-def
-                                      (rel/project (rel/outer-join 
-                                                             change-def
-                                                             (rel/as old-def 'old)
-                                                             'field 'old-field)
-                                                   '(old-nr field type prec))))]
-    new-def))
-
-(read-table-definition 'name [:int 1000] 'foo :int 'second-id :int)
-
-(rel/project 
- (rel/outer-join (read-table-definition 'name [:int 1000] 'foo :int 'second-id :int)
-                 (rel/as (probe-table 'people) 'old)
-                 'field
-                 'old-field)
- [*old-nr 'old-nr]
- 'field 'type 'prec)
+        old-def (rel/project (probe-table table-name) *pos *field *type *prec [:old *kind])
+        change-def (rel/project (apply read-table-definition table-definition) *pos *field *type *prec [:changed *kind])
+        changes (rel/project (rel/join change-def
+                                       (rel/as old-def 'old)
+                                       'field
+                                       'old-field)
+                             *old-pos *field *type *prec *kind)
+        news (let [c (count old-def)]
+               (rel/project (rel/difference change-def changes)
+                            (+ *pos c) *field *type *prec [:new *kind]))]
+    (rel/order-by (rel/union (rel/union old-def news) changes) 'pos)))
 
 
-
-
-
-
-#{[1 name :int 1000]}
-
-:idf #{prec field type}
-#{[1 name :int 1000]}
-
-
-
-(rel/fields (read-table-definition 'name [:int 1000] 'foo :int 'second-id :int))
-#{[2 second-id :int  nil]
-  [1 foo       :int  nil]
-  [0 name      :int 1000]}
-
-
- 'old-field 'field)
-    (rel/project (rel/outer-join 
-                  change-def
-                  (rel/as old-def 'old)
-                  'field 'old-field)
-                 '(old-nr field type prec))))
-
-(alter-table-types 'people 'name [:int 1000] 'foo :int 'second-id :int)
-#{[      nil     nil nil   0]
-  [      nil     nil nil   3]
-  [      nil     nil nil   2]
-  [name      :string 100   0]
-  [second-id :int    nil nil]
-  [foo       :int    nil nil]}
-
-#{[name      :int 1000   1]
-  [second-id :int  nil nil]
-  [foo       :int  nil nil]}
-
-
-
-(probe-table 'people)
-#{[0 id         :int     10]
-  [1 name       :string 100]
-  [3 address-id :int     10]
-  [2 vorname    :string 100]}
-
-(read-table-definition 'name [:int 1000] 'foo :int 'second-id :int)
-
-
-
-result:
-#{[0 id         :int     10]
-  [1 name       :int   1000]
-  [2 vorname    :string 100]
-  [3 address-id :int     10]
-  [4 foo        :int    nil]
-  [5 second-id  :int    nil]}
-
-
-
-(let [x
- (rel/outer-join 
-  (rel/as (probe-table 'people) 'old)
-  (read-table-definition 'name [:int 1000] 'foo :int 'second-id :int)
-  'old-field 'field)]
-  (rel/fields x))
-
-[old-nr old-field old-type old-prec nr field type prec]
-#{[nil        nil     nil  nil   2 second-id :int    nil]
-  [nil        nil     nil  nil   1 foo       :int    nil]
-  [  0 name       :int    1000   1 name      :string 100]
-  [  0 id         :int      10 nil       nil     nil nil]
-  [  3 address-id :int      10 nil       nil     nil nil]
-  [  2 vorname    :string  100 nil       nil     nil nil]}
-
-(project x '([nr (or *old-nr *nr)]
-             [field (or *old-field *field)]
-             [
-
-(merge-fields relation fields merge-condition
-
-(merge-fields x (or *name *old-name) 'name)
-
-(project
-
-projection: name, old-name -> name
-
-
-(defn merge-fields [R merge-condition field]
-  (
-
-(if (= *name *alter-name) *name *old-name)
-
-(rel/join 
- (rel/as (probe-table 'people) 'old)
- (read-table-definition 'name [:int 1000] 'foo :int 'second-id :int)
- 'old-field 'field)
-#{[1 name :string 100 0 name :int 1000]}
-
-
-
+(comment
 
 ;; what to do? first class handling of columns in sql-tables
 ; COLUMNS: rename, change types, reorder, add, remove
@@ -232,129 +124,10 @@ projection: name, old-name -> name
 
 ;copy-column
 
-
-
-(alter-table-types 'people 'name [:int 1000] 'foo :int 'second-id :int)
-
-        
-        new-sig (merge (into {} (map vector ofields otypes)) alt-sig)
-        fields (reduce (fn [r f] (if-not (pos ofields f) (conj r f) r)) ofields (keys alt-sig))
-        types (vec (map new-sig fields))
-        temp-table-name (name->sql (gensym table-name))]
-    (println :create-temp-table ofields otypes)
-    (create-table-from-vectors temp-table-name ofields otypes)
-    (*query-fn* :command (str "insert into " temp-table-name " select * from " table-name))
-    (drop-table table-name)
-    (println :create-NEW-table fields types)
-    (create-table-from-vectors table-name fields types)
-    (do1 (*query-fn* :command (format "insert into %s (%s) select * from %s"
-                                      table-name
-                                      (add-commata fields)
-                                      temp-table-name))
-         (drop-table temp-table-name))))
-
-
-
-(comment
-
-(rel/group-by (project (probe-table 'people) '()))
-(rel/fields (probe-table 'people))
-(rel/group-by (probe-table 'people) 'field)
-
-(rel/fields (probe-table 'people))
-
-(def *query-fn* (:query-fn ^hoeck.rel.test/derby-people))
-
-(*query-fn* "select id,name from people where id = 1 union select 2, 'meier'")
-(*query-fn* "select distinct 1 as id,2 as name from")
-(*query-fn* "select id, (select name from people where id = p.id) from people p")
-
-(hoeck.rel.core/constraints (probe-table 'people))
-
-((hoeck.rel.core/index (probe-table 'people)) 3 100)
-((hoeck.rel.core/index 
-  (hoeck.rel.core/union
-   (probe-table 'people)
-   (rel/make-relation '[nr field type prec] 2 'vorname :string 1000))
- 3 100)
-))
-
-
-
-(let [x (seq (probe-table 'people))]
-  (sort-by first > x))
-
-
-
-
-(some identity (map (fn [rel] (if-let [p (primary-key-vec rel)] (map #(pos (fields rel) %) p))) R S))
-
-
-(doc some)
--------------------------
-clojure.core/some
-([pred coll])
-  Returns the first logical true value of (pred x) for any x in coll,
-  else nil.
-nil
-
-(some identity '(nil 1 nil))
-
-
 (probe-table 'people)
 
-(let [a (probe-table 'people)
-      b (rel/make-relation '[a b c d] 3 'address-id :string 100)]
-  (rel/union (rel/select a (not= *nr 3)) b))
-      
-
-(defn insert [A B]
-(rel/fields (probe-table 'people))
-
-
-
-(create-relation 'people 'name :varchar 'vorname :varchar 'birthday :time 'ort :varchar 'id :int)
-(let [{f :fields} (probe-table 'people)] f)
-{:fields [id name vorname address-id], :types [:int :string :string :int]}
-
-(-> (cur-qry :conn "") .getMetaData .getSchemaTerm)
-(resultvec (-> (cur-qry :conn "") .getMetaData .getSchemas))
-(resultvec (-> (*query-fn* :conn "") .getMetaData .getTypeInfo))
-[["BIGINT" -5 19 nil nil nil 1 false 2 false false true "BIGINT" 0 0 nil nil 10]
- ["LONG VARCHAR FOR BIT DATA" -4 32700 "X'" "'" nil 1 false 0 true false false "LONG VARCHAR FOR BIT DATA" nil nil nil nil nil]
- ["VARCHAR () FOR BIT DATA" -3 32672 "X'" "'" "length" 1 false 2 true false false "VARCHAR () FOR BIT DATA" nil nil nil nil nil]
- ["CHAR () FOR BIT DATA" -2 254 "X'" "'" "length" 1 false 2 true false false "CHAR () FOR BIT DATA" nil nil nil nil nil]
- ["LONG VARCHAR" -1 32700 "'" "'" nil 1 true 1 true false false "LONG VARCHAR" nil nil nil nil nil]
- ["CHAR" 1 254 "'" "'" "length" 1 true 3 true false false "CHAR" nil nil nil nil nil]
- ["NUMERIC" 2 31 nil nil "precision,scale" 1 false 2 false true false "NUMERIC" 0 31 nil nil 10]
- ["DECIMAL" 3 31 nil nil "precision,scale" 1 false 2 false true false "DECIMAL" 0 31 nil nil 10]
- ["INTEGER" 4 10 nil nil nil 1 false 2 false false true "INTEGER" 0 0 nil nil 10]
- ["SMALLINT" 5 5 nil nil nil 1 false 2 false false true "SMALLINT" 0 0 nil nil 10]
- ["FLOAT" 6 52 nil nil "precision" 1 false 2 false false false "FLOAT" nil nil nil nil 2]
- ["REAL" 7 23 nil nil nil 1 false 2 false false false "REAL" nil nil nil nil 2]
- ["DOUBLE" 8 52 nil nil nil 1 false 2 false false false "DOUBLE" nil nil nil nil 2]
- ["VARCHAR" 12 32672 "'" "'" "length" 1 true 3 true false false "VARCHAR" nil nil nil nil nil]
- ["DATE" 91 10 "DATE'" "'" nil 1 false 2 true false false "DATE" 0 0 nil nil 10]
- ["TIME" 92 8 "TIME'" "'" nil 1 false 2 true false false "TIME" 0 0 nil nil 10]
- ["TIMESTAMP" 93 26 "TIMESTAMP'" "'" nil 1 false 2 true false false "TIMESTAMP" 0 6 nil nil 10]
- ["BLOB" 2004 2147483647 nil nil "length" 1 false 0 nil false nil "BLOB" nil nil nil nil nil]
- ["CLOB" 2005 2147483647 "'" "'" "length" 1 true 1 nil false nil "CLOB" nil nil nil nil nil]
- ["XML" 2009 nil nil nil nil 1 true 0 false false false "XML" nil nil nil nil nil]]
-
-(probe-table )
+(generate-table-definition 'people 'name [:int 1000] 'foo :int 'second-id :int 'vorname [:string 55])
 
 (*query-fn* "select id  from people ")
-
-
-
-
-
-
-
-
-
-
-
-
 
 )
