@@ -58,6 +58,14 @@
   [relation num]
   (if (single? (first relation)) identity #(nth % num)))
 
+(defn field-accessor
+  "Return a function which returns the field when called with a tuple
+  of relation."
+  [relation field]
+  (if-let [p (pos (fields relation) field)]
+    #(% p)
+    (throw (Exception. (str "unknown field: " field)))))
+
 (defn arity
   "Return the arity of a relation by counting either the fields or looking at
   the arity of the firs tuple."
@@ -208,6 +216,9 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 
 (defmacro fproxy-relation [meta methods]
   `(hoeck.rel.Relation. ~meta ~methods))
+
+(defn default-contains-fn [this key]
+  (if (.get this key) true false))
 
 (def *make-relation-default-initargs* {})
 

@@ -31,9 +31,6 @@
   (:use hoeck.rel.core hoeck.library clojure.contrib.fcase)
   (:import (clojure.lang MapEntry)))
 
-(defn default-contains-fn [this key]
-  (if (.get this key) true false))
-
 ;;; projection:
 
 (defn generate-signature
@@ -66,8 +63,8 @@
                                          #(subnvec % sig))
                              
                       m {:index (project-index R sig project-tuple-fn)
-                         :fields (vec (if align? names (map fields sig)))}
-                             
+                         :fields (vec (map fields sig))}
+                      
                       seq-fn (fn [_] (map project-tuple-fn (seq R)))
                       count-fn (fn [this] (count R))
                       get-fn (fn [_ key] (if (multi-index-lookup index-fn sig key) key))]
@@ -113,7 +110,9 @@
         input-fields (map #(:fields ((first %))) expr)
         input-fields-pos (map #(map (partial pos fields) %) input-fields)
         functions (map #((first %1) %2) expr input-fields)
-        new-field-names (vec (map second expr))
+        new-field-names (let [fnames-wo-meta (vec (map second expr))
+                              fset (set fields)]
+                          (map #(with-meta % (meta (fset %))) fnames-wo-meta))
 
         project-tuple (fn [tup] (vec (map #(%2 (subnvec tup %1))
                                           input-fields-pos functions)))
@@ -127,9 +126,8 @@
         ;; ideally, we need the inverse function of project-tuple for index-projection and tuple lookup
         ;; practically, we use only the identity-projected fields to built the
         ;; new index and recalculate the complex-projected ones
-        unproject-tuple (fn [ptup] '???
-                          
-                          )
+        unproject-tuple (fn [ptup] 
+                          '???)
 
         indexR (index R)        
 
@@ -381,5 +379,4 @@
 (defmethod intersection :clojure
   [R S]
   (difference R (difference R S)))
-
 
