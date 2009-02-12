@@ -47,6 +47,10 @@
                         lots-of-aliases))
           body)))
 
+(def-lots-of-aliases
+  (rel-core rename xproduct union intersection difference make-relation fields constraints)
+  (iris with-empty-universe <- ?-))
+
 ;; form the relation interface & some helpers
 (defn as
   "rename all fields of a relation such that they have a common prefix"
@@ -83,6 +87,7 @@
                                       :else 
                                         `(rel-core/condition ~%))
                                exprs))))
+
 
 ;(defn join
 ;  "multiple-relation join"
@@ -170,6 +175,19 @@
     (union (union jr xr)
            (union js xs))))
 
+(defn order-by 
+  "order tuples by field, use ascending (:asc) or descending (:desc) order."
+  ([R field] (order-by R field :asc))
+  ([R field asc-or-desc]
+     (rel-core/fproxy-relation ^R
+                               {'seq (let [a (rel-core/field-accessor R field)]
+                                       (if (= asc-or-desc :asc)
+                                         (fn [_] (sort-by a R))
+                                         (fn [_] (sort-by a #(* -1 (.compareTo %1 %2)) R))))
+                                'get (fn [_ tup] (.get R tup))
+                                'count (fn [_ count] (.count R))
+                                'contains rel-core/default-contains-fn})))
+
 ;; pretty printing
 (defn determine-column-sizes
   "Given a relation R, return a list of column-sizes according to opts."
@@ -218,15 +236,6 @@
 (defmethod print-method  hoeck.rel.Relation
   [R, w]
   (pretty-print-relation R :writer w))
-
-
-
-
-(def-lots-of-aliases
-  (rel-core rename xproduct union intersection difference make-relation fields constraints)
-  (iris with-empty-universe <- ?-))
-
-
 
 ;; sql stuff needs hoeck.rel
 (require '[hoeck.rel.sql-utils  :as sql-utils])
