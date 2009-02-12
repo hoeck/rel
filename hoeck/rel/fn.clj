@@ -112,7 +112,7 @@
         functions (map #((first %1) %2) expr input-fields)
         new-field-names (let [fnames-wo-meta (vec (map second expr))
                               fset (set fields)]
-                          (map #(with-meta % (meta (fset %))) fnames-wo-meta))
+                          (vec (map #(with-meta % (meta (fset %))) fnames-wo-meta)))
 
         project-tuple (fn [tup] (vec (map #(%2 (subnvec tup %1))
                                           input-fields-pos functions)))

@@ -181,7 +181,8 @@ Defaults to (= n 2)."
 
 (defn single? [k] (when (not (rest k)) (first k)))
 
-;; taken from: http://groups.google.com/group/clojure/browse_thread/thread/66ff0b89229be894/2a6ea0196efaa4ec#2a6ea0196efaa4ec
+
+;; taken from: http://groups.google.com/group/clojure/browse_thread/thread/66ff0b89229be894
 (defmacro pipe
   "Threads the expr through the forms. Inserts x as the
   last item in the first form, making a list of it if it is not a
@@ -195,7 +196,7 @@ Defaults to (= n 2)."
 ;;   (take 3 (filter odd? (range 1 20))) == (pipe (range 1 20) (filter odd?) (take 3))
 
 
-;; taken from: http://groups.google.com/group/clojure/browse_thread/thread/66ff0b89229be894/2a6ea0196efaa4ec#2a6ea0196efaa4ec
+;; taken from: http://groups.google.com/group/clojure/browse_thread/thread/66ff0b89229be894
 (defmacro let->
    "Provide a name that will be bound to the result of the first form.
    For each additional form, the variable will be
