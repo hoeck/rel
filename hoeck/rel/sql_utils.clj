@@ -78,17 +78,9 @@
     (if (not (nil? (db-spec :autocommit))) (.setAutoCommit conn (db-spec :autocommit)))
     conn))
 
-(defn lazy-resultset
-  [#^java.sql.ResultSet rs]
-    (let [idxs (range 1 (inc (.getColumnCount (.getMetaData rs))))
-          row-values (fn [] (vec (map (fn [#^Integer i] (. rs (getObject i))) idxs)))
-          rows (fn thisfn [] 
-                 (when (.next rs) (lazy-cons (row-values) (thisfn))))]
-      (rows)))
-
 (defn resultvec
   "Make a vector of tuples from an sql resultset."
-  [#^java.sql.ResultSet rs]
+    [rs]
     (let [idxs (range 1 (inc (.getColumnCount (.getMetaData rs))))
           row-values (fn [] (vec (map (fn [#^Integer i] (. rs (getObject i))) idxs)))]
       (loop [rows []]
@@ -155,10 +147,10 @@
   :timestamp "timestamp" Types/TIMESTAMP nil))
 
 ;; maps keywords to sql
-(def type-string (hoeck.rel/group-by (hoeck.rel/project types '(type sql)) 'type))
- 
+(def type-string (hoeck.rel/group-by (hoeck.rel/project types *type *sql) 'type))
+
 ;; maps Types to keywords
-(def type-num (hoeck.rel/group-by (hoeck.rel/select (hoeck.rel/project types '(type java-num)) (and (not= *type :keyword) (not= *type :symbol))) 'java-num))
+(def type-num (hoeck.rel/group-by (hoeck.rel/select (hoeck.rel/project types *type *java-num) (and (not= *type :keyword) (not= *type :symbol))) 'java-num))
 
 (defn probe-resultset
   "Retrieve relation metadata (eg columnnames) from an sql Relation."

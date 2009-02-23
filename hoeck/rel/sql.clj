@@ -46,7 +46,6 @@
   ([table-name fields]
      (str "select " (apply print-str (map name->sql fields)) " from " (name->sql table-name))))
 
-
 ;;; sql:      
 ;index-genaration:
 ;((index relation) 0 10) -> select * from personen where pers_id = 10
@@ -109,7 +108,7 @@
         m {:fields (vec (filter (set projected-fields) (fields relation)))}]
     (relation-from-sql (:query-fn (meta relation)) new-sql-select (merge (meta relation) m))))
 
-(defn condition->where-clause
+(defn clojure-expr->sql-expr
   [condition-object]
   (let [quoted-expr? #(and (list? %) (= (first %) 'quote))
         no-cut (fn [_] false)
@@ -143,7 +142,7 @@
 
 (defmethod select :sql
   [relation condition]
-  (let [sql-select (str "select * from (" (:sql-select ^relation) ") " (gensym) " where " (condition->where-clause condition))]
+  (let [sql-select (str "select * from (" (:sql-select ^relation) ") " (gensym) " where " (clojure-expr->sql-expr condition))]
     (relation-from-sql (:query-fn ^relation) sql-select ^relation)))
 
 ;(def rrr (select sql-people (condition (= *name 'weilandt))))
@@ -200,167 +199,7 @@
 
 (comment 
 
-(:relation-tag ^sql-people)
-(op-dispatch-fn sql-people '(name nachname))
 
-
-
-(apply hash-map '(name nachname))
-
-
-
-
-(defn deep-select-test
-  [level inner-sql]
-  (if (< level 0) (throw (IllegalArgumentException. "level must be greater or equal than 0.")))
-  (if (< 0 level)
-    (str "select * from (" (deep-select-test (dec level) inner-sql) ") " (gensym))
-    inner-sql))
-
-;;; RESULTS:
-; sybase 7: endless loop (exponential algo) after 23
-; sybase 9: parsing error (parse stack overflow) after 48 levels
-; derby: no problems
-
-(def qqq (make-query-fn default-derby-args))
-
-(qqq "select * from people")
-
-  (add-classpath "file:///home/timmy-turner/clojure/derby.jar")
-  (add-classpath "file:/g:/clojure/derby.jar")
-  (add-classpath "file:/g:/clojure/jconn2.jar")
-
-  (open-db :subname "/home/timmy-turner/clojure/test.db")
-  (open-db :subname "g:\\clojure\\test.db")
-
-  (sql-command
-   "create table people (
-id int,
-name varchar(100),
-vorname varchar(100),
-address_id int)"
-   )
-
-(sql-command
-"insert into people (id,name,vorname,address_id) values (1, 'weilandt', 'mathias', 100)"
-"insert into people (id,name,vorname,address_id) values (2, 'kirsch', 'diana', 100)"
-"insert into people (id,name,vorname,address_id) values (3, 'schmock', 'robert', 101)")
-
-(def rrr (sql-query-rs "select * from (select * from people x, people y) a"))
-(probe-resultset rrr)
-(resultset-seq rrr)
-(get-in (sql-query "select count(*) from people") [0 0])
-
-(sql-query "select id,name,vorname,address_id from people where id=0")
-
-(probe-resultset (sql-query-rs "select * from (select * from (select id,name,vorname,address_id from people) a, (select id,name,vorname,address_id from people) b) c"))
-
-(def r (relation-from-sql (make-query-fn "select * from people" {:fields '[id, name, vorname, address_id]})))
-(r '[1,weilandt,mathias,100])
-(* 230 54)
-(instance? javax.sql.RowSet (sql-query-rs "select * from people"))
-
-(.close (get-connection :create true))
-default-db-spec
-(def conn1 (get-connection default-derby-args))
-(def conn2 (get-connection))
-
-(sql-query conn1 "select * from people")
-
-(sql-query conn2 "select * from people")
-
-(sql-command conn1 "insert into people (id,name,vorname,address_id) values (4,'hamann','robert',102)")
-;(sql-command conn1 "delete from people where id = 4")
-
-(sql-query conn1 "select * from people")
-
-(sql-query conn2 "select * from people")
-
-(.commit conn1)
-
-(do (.close conn1) (.close conn2))
-(.getTransactionIsolation conn1)
-
-transaction-levels
-
-(defn test-many-connections [n]
-  (get-connection :subname "g:\\clojure\\test.db" :create true)
-  (map (fn [_] (get-connection :subname "g:\\clojure\\test.db" :create false)) (range n)))
-
-(def ccc (doall (map (fn [_] (get-connection default-sybase-args)) (range 5000))))
-
-(supported-transaction-levels (get-connection :subname "g:\\clojure\\test.db" :create false))
-
--> (:read-uncommited :serializable :repeatable-read :read-commited)
-
-(java.net.URL. "http://")
-
-(symbol? 'nil)
-(let [foo 'aaaaaa]
-  (condition->where-clause (condition (< (println foo) *a))))
-aaaaaa
-"(nil < 'a')"
-aaaaaa
-(nil "'<'" "'a'")
-aaaaaa
-("<" nil a)
-("<" ("println" "foo") a)
-
-("<" ("println" "foo") a)
-(str "a" "fff" "b")
-
-(let [foo 'aaaa]
-  (condition->where-clause (condition (< foo *a))))
-(print-str '("'aaaa'" < "'a'"))
-"('aaaa' < 'a')"
-
-("<" "aaaa" a)
-("<" "aaaa" a)
-
-("<" 1 a)
-("<" nil a)
-
-(def fff (condition (< (println foo) *a)))
-(fff)
-[(< (println foo) *a) (a)]
-
-"(quote (< (println foo) *a))"
-
-;(quote-condition-expression '(< (println foo) *a))
-
-
-(comment
-  (def fff
-  (let [a (ref 12)]
-    [(condition (< *a @a))
-     #(ref-set a %)]))
-
-(dosync ((second fff) 13))
-((first fff))
-
-
-(replace-exprs
- #(or (contains? sql-condition-ops %)
-      (field-name %))
- #(list 'quote %)
- '(< *a a))
 
 
 )
-)
-
-; Guten Tag,
-
-; bitte zahlen Sie den Betrag für das Semesterticket ab sofort auf folgendes
-; Konto ein:
-
-; "Studentenrat FHDW DD"
-; kto.: 420 156 83 99
-; BLZ: 850 503 00
-
-; Mit freundlichen Grüßen
-
-; FHDW Dresden
-
-; Heike Kutschke
-; Sekretariat / Verwaltung

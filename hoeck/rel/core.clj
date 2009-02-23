@@ -78,7 +78,7 @@
 (defn check-fields!
   "Throw Exception if any field is not in R."
   [R fields-to-test]
-  (if-let [u (remove (set (fields R)) fields-to-test)]
+  (if-let [u (seq (remove (set (fields R)) fields-to-test))]
       (throw (Exception. (format "Field %s is not known" (first u))))
     true))
 
@@ -253,22 +253,19 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 (defn empty-relation [fields]
   (make-relation #{} :fields (vec fields)))
 
-
-
 ;; conditions
 (defn make-coded-symbol-predicate
-  "Given a regex and group number, return a function that returns the 
+  "Given a regex-pattern and group number, return a function that returns the 
   matched group element group-nr on a given symbol."
-  [regex, group-nr]
-  (let [pattern (re-pattern regex)]
-    (fn [sym] 
-      (if-let [[g] (re-seq pattern (str sym))] (symbol (nth g group-nr)) nil))))
+  [pattern, group-nr]
+  (fn [sym] 
+    (if-let [[g] (seq (re-seq pattern (str sym)))] (symbol (nth g group-nr)) nil)))
 
 (def #^{:doc 
   "Return the fieldname of a symbol or nil of its not a field.
   Fieldnames are symbols starting with `*' and ending with any other character than `*'."
         :arglists '([symbol])}
-     field-name (make-coded-symbol-predicate "^(\\*)([^\\*]+)$" 2))
+     field-name (make-coded-symbol-predicate #"^(\*)([^\*]+)$" 2))
 
 (def sample-expr '(or (= *name name) (= *address-id 100)))
 
@@ -283,7 +280,7 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
   ex: (and a b c) -> (a and b and c)."
   [form]
   (let [op (first form)
-        args (rest form)]
+        args (next form)]
     (if (< (count args) 2)
       (throw (Exception. (format "need at least 2 arguments for %s" op)))
       (interpose op args))))
@@ -293,14 +290,14 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
   ex: (= a 1) -> (a = ), (= a b c) -> ((a = b) and (b = c))."
   [form]
   (let [op (first form)
-        args (rest form)
+        args (next form)
         two-arg-form #(list (first %) op (second %))]
     (cond (< (count args) 2)
             (throw (Exception. (format "need at least 2 arguments for %s" op)))
           (= (count args) 2)
             (list (first args) op (second args))
           :else
-            (interpose 'and (map #(list % op %2) args (rest args))))))
+            (interpose 'and (map #(list % op %2) args (next args))))))
 
 (def #^{:doc "Mapping from function symbols to infix expansion fns."}
      sql-condition-ops
@@ -319,7 +316,7 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
                                            (let [h (first %)]
                                              (and (symbol? h)
                                                   (contains? sql-condition-ops h))))
-                                         #(cons 'list (cons (list 'quote (first %)) (rest %)))
+                                         #(cons 'list (cons (list 'quote (first %)) (next %)))
                                          e))
         quote-fields (fn [e] (walk-expr cut-on-quote
                                         #(field-name %)

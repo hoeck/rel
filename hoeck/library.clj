@@ -53,8 +53,8 @@
 Defaults to (= n 2)."
   ([s] (split-every s 2))
   ([s n]
-  (map #(take n (nthrest s %))
-       (range 0 (count s) n))))
+     (map #(take n (nthnext s %))
+          (range 0 (count s) n))))
 
 (def rowsn split-every)
 
@@ -67,12 +67,12 @@ Defaults to (= n 2)."
      :doc "Inverse function to `interleave', defaults to (= n 2)."}
   partition-nth
   ([s] (partition-nth 2 s))
-  ([n s] (map #(take-nth n (nthrest s %)) (range n))))
+  ([n s] (map #(take-nth n (nthnext s %)) (range n))))
 
 
 (defn even-elements "Return al even elements of a seq, eql to (take-nth 2 s)." [s] (take-nth 2 s))
 
-(defn odd-elements "Return al odd elements of a seq, eql to (take-nth 2 (rest s))." [s] (take-nth 2 (rest s)))
+(defn odd-elements "Return al odd elements of a seq, eql to (take-nth 2 (next s))." [s] (take-nth 2 (next s)))
 
 
 (defn partition-with
@@ -82,8 +82,8 @@ Defaults to (= n 2)."
   [pred seq]
   ((fn part-fn [c]
      (cond (nil? c) nil           
-           :else (let [[f r] (split-with (complement pred) (rest c))]
-                   (lazy-cons (list* (first c) f) (part-fn r)))))
+           :else (let [[f r] (split-with (complement pred) (next c))]
+                   (lazy-seq (list* (first c) f) (part-fn r)))))
      seq))
 
 ;;; flatten one level of the list: (flat1 '((1) (2 3) (4))) -> (1 2 3 4)
@@ -99,9 +99,9 @@ Defaults to (= n 2)."
 ;   [str]
 ;   (read (new java.io.PushbackReader (new java.io.StringReader str))))
 
-(defn find-rest
-  "find-rest: return the rest of seq where fn for the head returns true.
-  (find-rest (fn [x] (= x 'foo)) '(bar foo bak)) -> (foo bak)"
+(defn find-next
+  "find-next: return the next of seq where fn for the head returns true.
+  (find-next (fn [x] (= x 'foo)) '(bar foo bak)) -> (foo bak)"
   [f seq]
   (drop-while (fn [x] (not (f x))) seq))
 
@@ -113,10 +113,10 @@ Defaults to (= n 2)."
     (if (== n 0) r
       (if (< n 0)
           (recur (+ n 1)
-                 (concat (rest r) (list (first r))))
+                 (concat (next r) (list (first r))))
         (let [rev (reverse r)]
           (recur (- n 1)
-                 (cons (first rev) (reverse (rest rev)))))))))
+                 (cons (first rev) (reverse (next rev)))))))))
 ;;(shift-right-circulate -1 [1 2 3 4])
 
 (defn shift-left-circulate [n l]
@@ -179,7 +179,7 @@ Defaults to (= n 2)."
   [coll value]
   (first (filter identity (map #(and (= value %) %2) (seq coll) (counter)))))
 
-(defn single? [k] (when (not (rest k)) (first k)))
+(defn single? [k] (when (not (next k)) (first k)))
 
 
 ;; taken from: http://groups.google.com/group/clojure/browse_thread/thread/66ff0b89229be894
@@ -189,7 +189,7 @@ Defaults to (= n 2)."
   list already. If there are more forms, inserts the first form as the
   last item in second form, etc."
   ([x form] (if (seq? form)
-              `(~(first form) ~@(rest form) ~x)
+              `(~(first form) ~@(next form) ~x)
               (list form x)))
   ([x form & more] `(pipe (pipe ~x ~form) ~@more)))
 ;; example: 
@@ -407,7 +407,7 @@ pred is a function which decides if f should be applied to the current form."
   "like do but return the result from the first form."
   [& body]
   `(let [result# ~(first body)]           
-    ~@(rest body)                         
+    ~@(next body)                         
     result#))
 
 (defmacro unlazy-map [& rest] `(doall map ~@rest))
@@ -437,9 +437,9 @@ on keywords without `:'"
   [src]
   (let [[heading, body] (split-with (complement #(re-matches #"={3,}" (str %))) (remove #(or (= % '|) (= % '||)) src))
         relation-name (first heading)
-        horiz-cols (rest heading)
+        horiz-cols (next heading)
         horiz-arity (count horiz-cols)
-        rows (into {} (map #(vector (first %) (rest %)) (partition (inc horiz-arity) (rest body))))
+        rows (into {} (map #(vector (first %) (next %)) (partition (inc horiz-arity) (next body))))
         result (reduce #(into % (map (fn [c h] [[(key %2) h] c]) (val %2) horiz-cols)) {} rows)]
     (with-meta result {'relation-matrix-literal-name relation-name})))
 
@@ -593,13 +593,13 @@ on keywords without `:'"
 
 (defn flatten-df
   "Returns a depth-first lazy sequence of tree t."
-  [t] (mapcat #(if (coll? %) (conj (flatten-df (rest %)) (first %)) (list %)) t))
+  [t] (mapcat #(if (coll? %) (conj (flatten-df (next %)) (first %)) (list %)) t))
 
 ;;(flatten tree)
 (defn flatten-bf
   "Returns a breadth-first lazy sequence of tree t."
   [t] (when t (lazy-cat (map #(if (coll? %) (first %) %) t)
-                        (flatten-bf (mapcat #(if (coll? %) (rest %) nil) t)))))
+                        (flatten-bf (mapcat #(if (coll? %) (next %) nil) t)))))
 
 
 
@@ -706,7 +706,7 @@ on keywords without `:'"
     (loop [heights (reverse (map #(.intValue (* scale %)) s))
            result ()]
         (if-let [h (first heights)]
-                (recur (rest heights) (cons (make-bar height h) result))
+                (recur (next heights) (cons (make-bar height h) result))
                 result)))))
     (count s)))
 
@@ -895,12 +895,12 @@ to access this proxies autogenerated methods."
       (and (= a1 b2) (= b1 a2))))
 
 ;; derived from boot.clj
-(defn my-distinct [eq-fn coll]
-  (let [step (fn step [[f & r :as xs] seen]
-                 (when xs
-                   (if (some (partial eq-fn f) seen) (recur r seen)
-                       (lazy-cons f (step r (conj seen f))))))]
-    (step (seq coll) nil)))
+;(defn my-distinct [eq-fn coll]
+;  (let [step (fn step [[f & r :as xs] seen]
+;                 (when xs
+;                   (if (some (partial eq-fn f) seen) (recur r seen)
+;                       (lazy-cons f (step r (conj seen f))))))]
+;    (step (seq coll) nil)))
 ; ex.: (my-distinct unordered-pair= '([a b] [b a] [c d] [a b] [c d] [g f] [d c]))
 
 
@@ -924,9 +924,14 @@ to access this proxies autogenerated methods."
       (.setBounds 32 32 700 900)
       (.show))))
 
+
+(def javadoc-root-url "file:///home/timmy-turner/doc/java-sdk-docs-1.6.0/html/api/")
+;;(def javadoc-root-url "http://java.sun.com/javase/6/docs/api/")
+
 (defn javadoc [c]
-  "ex: (javadoc Throwable) opens a window displaying Throwable's javadoc."
-  (let [url (str "http://java.sun.com/javase/6/docs/api/"
+  "ex: (javadoc Throwable) opens a window displaying Throwable's javadoc.
+  Uses javadoc-root-url as the source for javadocs."
+  (let [url (str javadoc-root-url
                  (.. c getName (replace \. \/) (replace \$ \.)) ".html")]
     (open-url url)))
 

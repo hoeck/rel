@@ -65,9 +65,9 @@
                       m {:index (project-index R sig project-tuple-fn)
                          :fields (vec (map fields sig))}
                       
-                      seq-fn (fn [_] (map project-tuple-fn (seq R)))
-                      count-fn (fn [this] (count R))
-                      get-fn (fn [_ key] (if (multi-index-lookup index-fn sig key) key))]
+                      seq-fn (fn simple-projection-seq [_] (seq (map project-tuple-fn (seq R))))
+                      count-fn (fn simple-projection-count [this] (count R))
+                      get-fn (fn simple-projection-get [_ key] (if (multi-index-lookup index-fn sig key) key))]
                   (fproxy-relation (merge (meta R) m) 
                                    {'seq seq-fn,
                                     'count count-fn,
@@ -121,7 +121,7 @@
         ;; (the fields projected with the identity-function)
         lookupable-fields (set (map first (map :fields (filter #(= :identity (:type %)) (map #((first %)) expr)))))
         ;; positions of the identity fields in the tuples of R, nil if field is not lookupable
-        lookup-fields-pos (vec (map #(if (and (lookupable-fields (first %1)) (not (rest %1))) (first %2) nil) input-fields input-fields-pos))
+        lookup-fields-pos (vec (map #(if (and (lookupable-fields (first %1)) (not (next %1))) (first %2) nil) input-fields input-fields-pos))
         
         ;; ideally, we need the inverse function of project-tuple for index-projection and tuple lookup
         ;; practically, we use only the identity-projected fields to built the

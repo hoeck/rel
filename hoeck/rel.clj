@@ -88,14 +88,13 @@
                                         `(rel-core/condition ~%))
                                exprs))))
 
-
-;(defn join
-;  "multiple-relation join"
-;  ([R S r s] (rel-core/join R S r s))
-;  ([R S r s & more] (if (<= 3 (count more))
-;                      (let [[T j t & more] more] 
-;                        (apply join (rel-core/join R S r s) T j t more))
-;                      (throw (java.lang.IllegalArgumentException. "wrong number of arguments to join")))))
+(defn join
+  "multiple-relation join"
+  ([R S r s] (rel-core/join R S r s))
+  ([R S r s & more] (if (<= 3 (count more))
+                      (let [[T j t & more] more] 
+                        (apply join (rel-core/join R S r s) T j t more))
+                      (throw (java.lang.IllegalArgumentException. "wrong number of arguments to join")))))
 
 (defn left-join
   "simple left-join implementation using (right) join and project."
@@ -115,7 +114,7 @@
                            (rel-core/dissoc-vec %1 fpos))]
                    (if (= (count v) 1) (v 0) v))]
        (into {} (map (fn [[k v]] [k (let [v (map dtup v)]
-                                      (if (rest v) v (first v)))])
+                                      (if (next v) v (first v)))])
                      ((rel-core/index R) fpos)))))
   ([R field & more-fields]
      (unsupported-operation!)
@@ -197,7 +196,7 @@
                                    (map count)
                                    (map (partial + -2))
                                    (reduce max))
-                            (fields R))
+                            (fields R))       
         pretty-col-widths (pipe max-col-widths
                                 (map (partial min (:max-colsize opts)))
                                 (map (partial max (:min-colsize opts))))
@@ -227,7 +226,7 @@
             (binding [*out*(:writer opts)]
               (print"#{")
               (print (pr-tupl (first R)))
-              (doseq [r (rest R)]
+              (doseq [r (next R)]
                 (println)
                 (print (str "  " (pr-tupl r))))
               (println "}")))))
@@ -238,12 +237,14 @@
   (pretty-print-relation R :writer w))
 
 ;; sql stuff needs hoeck.rel
-(require '[hoeck.rel.sql-utils  :as sql-utils])
-(require '[hoeck.rel.sql  :as sql])
+(require '[hoeck.rel.sql-utils :as sql-utils])
+(require '[hoeck.rel.sql :as sql])
 
 (def-lots-of-aliases 
   (sql-utils default-derby-args default-sybase-args))
 
 (defaliases
   sql-connection sql-utils/make-connection-fn)
+
+
 
