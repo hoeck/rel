@@ -126,7 +126,7 @@
         ;; ideally, we need the inverse function of project-tuple for index-projection and tuple lookup
         ;; practically, we use only the identity-projected fields to built the
         ;; new index and recalculate the complex-projected ones
-        unproject-tuple (fn [ptup] 
+        unproject-tuple (fn [ptup]
                           '???)
 
         indexR (index R)        
