@@ -47,14 +47,34 @@
 (defmulti intersection two-op-dispatch-fn)
 (defmulti order-by op-dispatch-fn)
 
-;; default dispatch
-(defmacro def-default-method
-  "Expands to a defmethod form which defines the default dispatch method (on true) for 
-  the given rel-algebra method name taking R-arg-count num args."
-  [name R-arg-count]
-  (let [rel-args (repeatedly gensym)]
-    `(defmethod ~name true [~@(take R-arg-count rel-args) & args#]
-       (apply ~'project ~@(map (fn [argname] `(make-relation ~argname)) (take R-arg-count rel-args)) args#))))
+;; `private' operators
+(defmulti make-index op-dispatch-fn)
+
+;; constructor methods
+(defmulti make-relation (fn [dispatch-arg & initargs] 
+                            (cond (keyword? dispatch-arg)
+                                    dispatch-arg
+                                  :else
+                                    (class dispatch-arg))))
+
+
+;; meta-operators
+
+; (left-join, outer-join, convinience macros)
+
+
+
+
+
+; ????
+;;; default dispatch
+;(defmacro def-default-method
+;  "Expands to a defmethod form which defines the default dispatch method (on true) for 
+;  the given rel-algebra method name taking R-arg-count num args."
+;  [name R-arg-count]
+;  (let [rel-args (repeatedly gensym)]
+;    `(defmethod ~name true [~@(take R-arg-count rel-args) & args#]
+;       (apply ~'project ~@(map (fn [argname] `(make-relation ~argname)) (take R-arg-count rel-args)) args#))))
 
 (comment
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

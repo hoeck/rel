@@ -67,10 +67,12 @@
 
 ;;;
 ;(require 'hoeck.rel.Relation)
+;(binding [*compile-path* "/home/timmy-turner/clojure/classes"] (compile 'hoeck.rel.Relation))
 ;(binding [*compile-path* "g:\\clojure\\classes"] (compile 'hoeck.rel.Relation))
 ;(def xxx (hoeck.rel.Relation. {} {}))
-;(def xxx (hoeck.rel.Relation. {} {'count (fn [_] 3) 'seq (fn [_] '(a b c d e f g))}))
+;(def xxx (hoeck.rel.Relation. {} {'count (fn [_] 3) 'seq (fn [_] (map #(do (println %) %) '(a b c d e f g)))}))
 ;(def yyy (with-meta xxx {:meta 'data}))
+
 
 ;(doc gen-class)
 ; -------------------------
