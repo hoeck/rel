@@ -17,8 +17,8 @@
 (defn- -init
   ([key-look-fn, key-fn, val-fn, m]
   ;; key-look-fn: maps new-keys -> old-key
-  ;; key-fn maps keys
-  ;; val-fn dito
+  ;; key-fn: maps key -> new-key
+  ;; val-fn: maps val -> new-val
   ;; m: tha hash-map to map
      [[] {:look key-look-fn, :key key-fn, :val val-fn, :map m}])
   ([state-map]
@@ -63,14 +63,14 @@
 
 (defn- -entryAt
   [this k]
-  (clojure.lang.MapEntry. k (.valAt (state :map) ((state :look) k))))
+  (clojure.lang.MapEntry. k ((state :val) (.valAt (state :map) ((state :look) k)))))
 
 (defn- -valAt
   ([this k]
    (. this valAt k nil))
   ([this k nf]
    (if (.containsKey (state :map) k)
-     ((state :val) ((state :map) ((state :look) k)))
+     ((state :val) (.valAt (state :map) ((state :look) k)))
      nf)))
 
 ; Iterable

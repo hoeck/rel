@@ -95,31 +95,34 @@
 ;;;  environment (lexical scope) while preserving enough abstraction from
 ;;;  the underlying relation implementation and reducing line noise."
 (defmacro condition
-  "create a function which creates a condition function given
-  a vector of columnnames of a particular relation.
-  Calling the constructor without an arg will return the underlying
-  condition-expression, the involved columns and additional properties."
-  ([expr] `(condition ~expr ~(gensym "c-")))
+  "expand into a fn form.
+  Calling this function without an arg will return the underlying
+  condition-expression, the involved columns and additional properties. (function meta-data).
+  Calling with a hashmap as the arguments executes the expr with the unquoted symbols bound to
+  the corresponding fields of the hashmap."
+  ([expr] `(condition ~expr nil ;;~(gensym "c-")
+                      ))
   ([expr condition-name]
-     (let [
-           fields (map #(-> % second str keyword) (collect-exprs field? expr))
+     (let [fields (map #(-> % second str keyword) (collect-exprs field? expr))
            tuple-sym (gensym "tuple")
            fn-expr (replace-exprs field? #(list (-> % second str keyword) tuple-sym) expr)]
-    `(fn ~(symbol (name condition-name))
-      ([]
-         ;; Should throw an error if any operator is not in sql-condition-ops.
-         ;; Only if all operators used in expr are in sql-condition-ops the expr gets
-         ;; quoted correctly.
-         ;; If any operator is not in sql-condition-ops, then only introspection of the
-         ;; expr is not working, the condition-function-ctor and the
-         ;; condition-function are working anyway.
-         ;; this is actually function metadata and will be moved there if that finally gets implemented
-         {:expr ~(quote-condition-expression expr),
-          :fields '~fields
-          :type :user
-          :name '~condition-name})
-      ([~tuple-sym]
-         ~fn-expr)))))
+       `(fn ;~(symbol (name condition-name))
+          ([]
+             ;; Should throw an error if any operator is not in sql-condition-ops.
+             ;; Only if all operators used in expr are in sql-condition-ops the expr gets
+             ;; quoted correctly.
+             ;; If any operator is not in sql-condition-ops, then only introspection of the
+             ;; expr is not working, the condition-function-ctor and the
+             ;; condition-function are working anyway.
+             ;; this is actually function metadata and will be moved there if that finally gets implemented
+             {:expr ~(quote-condition-expression expr),
+              :fields '~fields
+              :type :user
+              :name '~(or condition-name 
+                          ;; provide a default field-name: ????
+                          (keyword (apply str (interpose '- (map name (cons (first expr) fields))))))})
+          ([~tuple-sym]
+             ~fn-expr)))))
 
 (defmacro condition-meta [c]
   `(binding [unquote (fn [~'field] (symbol "hoeck.rel.field" (name ~'field)))]
