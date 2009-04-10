@@ -29,8 +29,7 @@
 ;;; | library for clojure |
 ;;; +---------------------+
 
-(ns hoeck.library
-  (:use clojure.contrib.fcase))
+(ns hoeck.library)
 
 ;;; +---------------------+               
 ;;; | basic lisp stuff    |               
@@ -44,6 +43,18 @@
 
 
 ;;; sequence stuff
+
+(defn segment
+  "Takes one collection and returns two collections of the same type with
+  all elements where (pred item) returns true in the first collection and
+  false items in the second collection."
+  [pred coll]
+  (reduce (fn [[p, non-p] item]
+            (if (pred item)
+              [(conj p item), non-p]
+              [p, (conj non-p item)]))
+          [(empty coll) (empty coll)]
+          coll))
 
 (defn in?
   "Return true if sequence s countains element e."
@@ -515,7 +526,7 @@ on keywords without `:'"
    (let [l (count s)
          space (make-string " " (- size l))] 
      (if (>= l size) s
-         (case align
+         (condp = align
            :left  (str s space)
            :right (str space s)
            :center (let [n (/ (- size l) 2)

@@ -1,11 +1,13 @@
 
 (ns hoeck.value-mapped-map.ValueMappedMap
-  (:require [hoeck.library :as library])
+  (:require [hoeck.library :as library]
+            [de.kotka.lazymap :as lazymap])
   (:gen-class
    :init         init
    :state        state
    :implements   [clojure.lang.IPersistentMap clojure.lang.IFn
                   clojure.lang.IObj]
+   :methods      [[lazyAssoc [Object Object] clojure.lang.IPersistentMap]]
    :constructors {[clojure.lang.IFn clojure.lang.IPersistentMap] []
                   [clojure.lang.IFn clojure.lang.IPersistentMap clojure.lang.IPersistentMap] []})
   (:import
@@ -52,7 +54,7 @@
 ; IPersistentMap
 (defn- -assoc
   [this k v]
-  (mutate-self :new-map (assoc (or (state :new-map) {}) k v)
+  (mutate-self :new-map (assoc (or (state :new-map) (empty (state :map))) k v)
                :map (dissoc (state :map) k)))
 
 (defn- -assocEx
@@ -65,6 +67,11 @@
   [this k]
   (mutate-self :map (dissoc (state :map) k)
                :new-map (if (state :new-map) (dissoc (state :new-map) k))))
+
+; LazyMap (in case (state :map) is a lazymap)
+(defn -lazyAssoc [this k v]
+  (mutate-self :new-map (lazymap/lazy-assoc* (or (state :new-map) (empty (state :map))) k v)
+               :map (dissoc (state :map) k)))
 
 ; Associative
 (defn- -containsKey
@@ -114,7 +121,9 @@
 
 (defn- -empty
   [this]
-  (mutate-self :fn identity :map {} :new-map nil))
+  (empty (state :map))
+  ;(mutate-self :fn identity :map  :new-map nil)
+  )
 
 ; IFn
 (defn- -invoke
@@ -136,3 +145,5 @@
 ;; +++ bootstrap +++
 ;; (require 'hoeck.value-mapped-map.ValueMappedMap :reload)
 ;; (binding [*compile-path* "/home/timmy-turner/clojure/classes"] (compile 'hoeck.value-mapped-map.ValueMappedMap))
+
+

@@ -78,7 +78,7 @@
 
 (defmethod make-index :clojure [R & opts]
   (let [;; lazy index
-        index-map (apply lazy-hash-map* (mapcat #(list % (delay (set-index R %))) (fields R)))
+        index-map (apply lazy-hash-map* (mapcat #(list %  (delay (set-index R %))) (fields R)))
         ;; index-hashmap, lazy, looks exactly like the index-function in clojure.set
 ;        index-interface (magicmap (fn 
 ;                                    ([] (mapcat #(map (partial hash-map %) (keys (index-map %))) (fields R)))
@@ -105,11 +105,11 @@
   "Read a list of symbols or conditions and 
   convert all symbols to identity-conditions returning
   a list of conditions."
-  [& expr-or-symbol]
+  [exprs]
   (map #(if (field? %)
           (make-identity-condition %)
           %)
-       expr-or-symbol))
+       exprs))
 
 (def example-project-expression
      (read-expressions
@@ -120,63 +120,6 @@
 ;;   a `pure' (identity) projection function
 ;;   a `map' projection function, which adds new, unindexed values to a relation
 
-
-;(defmethod project :clojure
-;  ([_] (empty-relation))
-;  ([R exprs]
-;     (let [fields (fields R)
-;           exprs (apply read-expressions exprs)
-;           expr-meta (map #(condition-meta %) exprs)
-;           new-fields (map :name expr-meta)
-           
-;           ;; or: select-keys
-;           projected-struct (apply create-struct new-fields)
-;           project-tuple (fn [tup] (apply struct projected-struct (map #(% tup) exprs)))
-                
-;           ;; only those with identity-expressions
-;           indexed-fields (pipe expr-meta
-;                                (filter #(= (:type %) :identity))
-;                                (map :name)
-;                                (set))
-           
-;           ;; two sets
-;           [indexed-fields, new-fields] (reduce (fn [[i,n] {:keys [name, type]}]
-;                                               (if (= type :identity)
-;                                                 [(conj i name), n            ]
-;                                                 [i            , (conj n name)]))
-;                                             [#{} #{}]
-;                                             expr-meta)
-        
-;           seq-fn (fn seq-fn [_] (distinct (map project-tuple R)))
-;           count-fn (fn count-fn [_] (count (seq)))
-                
-;           new-index-map (apply lazy-hash-map* (mapcat
-;                                              #(list % (delay (set-index (seq-fn nil) %)))
-;                                              new-fields))
-
-;           new-index (merge new-index-map
-;                            (let [old-index (select-keys (index R) indexed-fields)]
-;                              (mapped-map
-;                               )
-;                              (mapped-map (fn ([] ())
-;                                          ))
-;                              ))
-
-;           (fn index-fn 
-;             ([] (pipe (keys (index R))
-;                       (filter #(indexed-fields (key (first %))))))
-;             ([k] (if (next k)
-;                    () 
-;                    (single-field-lookup k))))
-           
-;           get-fn (fn get-fn [this tup] (nnew-index tup))
-           
-;           projected-R (Relation. (merge (meta R) {:fields new-fields :index new-index})
-;                                  {'seq seq-fn
-;                                   'count count-fn
-;                                   'get get-fn
-;                                   })]
-;       projected-R)))
 (defn map-index [tuple-fn, index]
   ;;{:field {value #{ tuples }}}
   ;;         `---------------´
@@ -186,60 +129,91 @@
                                         index-map))
                     index))
 
+(defn filter-index [tuple-pred, index]
+  ;; {field {value #{ tuples }}}
+  ;;    |      |        `- filter tuple-pred tuples
+  ;;    |      `- empty-set ^= filterd
+  ;;    `- identity
+  (value-mapped-map (fn [index-map]
+                      (value-mapped-map (fn [tuples] (set (filter tuple-pred tuples)))
+                                        index-map))
+                    index))
 
-(defn project-identity [R field-names]
-    ;; just remove some fields, field names must be a list of existing fields
-    (let [fields (fields R)
+(defn project-identity 
+  "From all tuples of Relation R, remove all tuple-keys not in field-names."
+  [R field-names]
+  (let [fields (fields R)
+        
+        ;;projected-struct (apply create-struct field-names)
+        project-tuple (fn [tup] (select-keys tup field-names))
+        
+        new-index (map-index project-tuple (select-keys (index R) field-names))                   
+        ;;{:field {value #{ tuples }}}
+        ;;  |        |        |
+        ;;  |        |        `remove unprojected from each tuple
+        ;;  |        |        
+        ;;  |        `identity
+        ;;  |
+        ;;  `remove-all non-projected
+        
+        seq-fn (fn seq-fn [_] (distinct (map project-tuple R)))
+        count-fn (fn count-fn [this] (count (seq this)))
+        get-fn (fn get-fn [this tup] (new-index tup))]
+    (Relation. (merge (meta R) {:fields field-names :index new-index})
+               {'seq seq-fn
+                'count count-fn
+                'get get-fn
+                })))
 
-          ;; or: select-keys
-          ;;projected-struct (apply create-struct field-names)
-          project-tuple (fn [tup] (select-keys tup field-names))
+(defn project-expression 
+  ([R expr]
+     ;; map fields to new fields, an expr is basically a function from field* -> new-field on each `row'
+     (let [em (condition-meta expr)
+           new-field (:name em)
+           project-tuple (fn [tup] (assoc tup new-field (expr tup)))
 
-          new-index (map-index project-tuple (select-keys (index R) field-names))                   
-          ;;{:field {value #{ tuples }}}
-          ;;  |        |        |
-          ;;  |        |        `remove unprojected from each tuple
-          ;;  |        |        
-          ;;  |        `identity
-          ;;  |
-          ;;  `remove-all non-projected
+           new-index (lazy-assoc (map-index project-tuple (index R))
+                                 new-field 
+                                 (set-index (map project-tuple R) new-field))
 
-          seq-fn (fn seq-fn [_] (distinct (map project-tuple R)))
-          count-fn (fn count-fn [this] (count (seq this)))
-          get-fn (fn get-fn [this tup] (new-index tup))]
-      (Relation. (merge (meta R) {:fields field-names :index new-index})
-                 {'seq seq-fn
-                  'count count-fn
-                  'get get-fn
-                  })))
+           seq-fn (fn [this] (distinct (map project-tuple R)))
+           count-fn (fn [this] (count (seq this)))
+           get-fn (fn [this tup] (index-lookup new-index tup))]
+       (Relation. (merge ^R {:fields (concat (fields R) new-field) :index new-index})
+                  {'seq seq-fn
+                   'count count-fn
+                   'get get-fn})))
+  ([R expr & exprs]
+     (project-expression (apply project-expression R exprs) expr)))
 
-(defn project-expression [R expr]
-    ;; map fields to new fields, an expr is basically a function from field* -> new-field on each `row'
-    (let [em (condition-meta expr)
-          new-field (:name em)
-          project-tuple (fn [tup] (assoc tup new-field (expr tup)))
-          new-index (assoc (map-index project-tuple (index R)) new-field (make-index))
+;; example;
+;;(index (project-expression people (condition (* ~id 10)) (condition (- ~id 100)) (condition (+ ~id 1000))))
 
-          seq-fn (fn [this] (distinct (map project-tuple R)))
-          count-fn (fn [this] (count (seq this)))
-          get-fn (fn [this tup] (index-lookup new-index tup))]
-      (Relation. (merge ^R {:fields nil :index new-index})
-                 {'seq seq-fn
-                  'count count-fn
-                  'get get-fn})))
-          
-                                           
-;(condition-meta (condition (= ~id 10 ~name)))
-                                           
-                                           
-;; project on indices:                     
-;;index-map:                               
-operator | project     | project-expr    | select | join
----------+-------------+-----------------+--------+---------------------
-tuple-fn | select-keys | assoc new field | nil    |   
-value-fn | identity    | identity        | nil    |
-field-fn | select-keys | assoc new index | nil    |
-                                                   
-                                                   
+(defmethod project :clojure [R & exprs]
+  (let [exprs (read-expressions exprs)
+        identity-expr? #(= (:type (condition-meta %)) :identity)
+        complex-exprs (filter (complement identity-expr?) exprs)
+        all-projected-fields (map #(:name (condition-meta %)) exprs)]
+    (project-identity (if (seq complex-exprs) 
+                        (apply project-expression R complex-exprs)
+                        R)
+                      all-projected-fields)))
 
- 
+;; example: (project people :id (condition (str ~vorname "-" ~id)) :name)
+
+
+(defmethod select :clojure [R expr]
+  (let [new-index (filter-index expr (index R))
+        seq-fn (fn [_] (distinct (filter expr R)))
+        get-fn (fn [_ k] (index-lookup new-index k))
+        count-fn (fn [_] (count (seq-fn _)))]
+    (Relation. (merge (meta R) {:index new-index})
+               {'seq seq-fn
+                'count count-fn
+                'get get-fn})))
+
+;;; example: (select (project people :id :name) (condition (= ~id 1)))
+
+
+
+
