@@ -12,3 +12,4 @@
   ([f m] ;; map only vals, leave keys alone
      (ValueMappedMap. f m)))
 
+

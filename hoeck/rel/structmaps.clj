@@ -120,24 +120,28 @@
 ;;   a `pure' (identity) projection function
 ;;   a `map' projection function, which adds new, unindexed values to a relation
 
-(defn map-index [tuple-fn, index]
+
+(defn map-index [index-fn, index]
   ;;{:field {value #{ tuples }}}
   ;;         `---------------´
   ;; `------------------------´
   (value-mapped-map (fn [index-map]
-                      (value-mapped-map (fn [tuples] (set (map tuple-fn tuples)))
+                      (value-mapped-map index-fn
                                         index-map))
                     index))
+
+(defn map-index-tuples [tuple-fn, index]
+  ;;{:field {value #{ tuples }}}
+  ;;         `---------------´ index-fn
+  ;; `------------------------´ valuemappedmap
+  (map-index (fn [tuples] (set (map tuple-fn tuples))) index))
 
 (defn filter-index [tuple-pred, index]
   ;; {field {value #{ tuples }}}
   ;;    |      |        `- filter tuple-pred tuples
-  ;;    |      `- empty-set ^= filterd
+  ;;    |      `- empty-set ^= filtered
   ;;    `- identity
-  (value-mapped-map (fn [index-map]
-                      (value-mapped-map (fn [tuples] (set (filter tuple-pred tuples)))
-                                        index-map))
-                    index))
+  (map-index (fn [tuples] (set (filter tuple-pred tuples))) index))
 
 (defn project-identity 
   "From all tuples of Relation R, remove all tuple-keys not in field-names."
@@ -147,7 +151,7 @@
         ;;projected-struct (apply create-struct field-names)
         project-tuple (fn [tup] (select-keys tup field-names))
         
-        new-index (map-index project-tuple (select-keys (index R) field-names))                   
+        new-index (map-index-tuples project-tuple (select-keys (index R) field-names))                   
         ;;{:field {value #{ tuples }}}
         ;;  |        |        |
         ;;  |        |        `remove unprojected from each tuple
@@ -172,7 +176,7 @@
            new-field (:name em)
            project-tuple (fn [tup] (assoc tup new-field (expr tup)))
 
-           new-index (lazy-assoc (map-index project-tuple (index R))
+           new-index (lazy-assoc (map-index-tuples project-tuple (index R))
                                  new-field 
                                  (set-index (map project-tuple R) new-field))
 
@@ -189,7 +193,7 @@
 ;; example;
 ;;(index (project-expression people (condition (* ~id 10)) (condition (- ~id 100)) (condition (+ ~id 1000))))
 
-(defmethod project :clojure [R & exprs]
+(defmethod project :clojure [R exprs]
   (let [exprs (read-expressions exprs)
         identity-expr? #(= (:type (condition-meta %)) :identity)
         complex-exprs (filter (complement identity-expr?) exprs)
@@ -199,7 +203,7 @@
                         R)
                       all-projected-fields)))
 
-;; example: (project people :id (condition (str ~vorname "-" ~id)) :name)
+;; example: (project people (list :id (condition (str ~vorname "-" ~id)) :name))
 
 
 (defmethod select :clojure [R expr]
@@ -212,7 +216,99 @@
                 'count count-fn
                 'get get-fn})))
 
-;;; example: (select (project people :id :name) (condition (= ~id 1)))
+;;; example: (select (project people '(:id :name)) (condition (< ~id 4)))
+
+
+(defn lazily-rename-keys
+  ;; needs clojure.core/select-keys be fixed to use (empty map) instead of just {} !!!
+  "Returns the map with the keys in kmap renamed to the vals in kmap.
+  Map must be a LazyMap or ValueMappedMap of a LazyMap."
+  [map kmap]
+  (reduce 
+   (fn [m [old new]]
+     (if (not= old new)
+       (lazy-assoc* (dissoc m old) new (.getRawValue (find m old)))
+       m))
+   map kmap))
+
+(defmethod rename :clojure [R kmap]
+  (let [new-index (map-index-tuples #(clojure.set/rename-keys % kmap) (lazily-rename-keys (index R) kmap))]
+    (Relation. (merge (meta R) {:index new-index})
+               {'seq (fn [_] (seq (clojure.set/rename R kmap)))
+                'count (fn [_] (count R))
+                'get (fn [_ k] (index-lookup new-index k))})))
+
+;;; example: (index (rename (select (project people '(:id :name)) (condition (< ~id 4))) {:id :ident-number}))
+
+
+(defn lazy-merge
+  "given lazy hashmaps a and b, merge those without calculating the keys."
+  [a b]
+  (reduce #(lazy-assoc* %1 (key %2) (.getRawValue %2)) a b))
+
+;; (right) outer-join
+(defmethod outer-join :clojure [R r S s]
+  (let [index-Ss (find (index S) s)
+        join-tuple (fn [r-tup] (merge r-tup (first ((val index-Ss) (r-tup r)))))
+        reverse-join (fn [s-tup] (set (map join-tuple ((index R) r))))
+        new-index (lazy-merge (map-index-tuples join-tuple R)
+                              (map-index #(map reverse-join %) S))]
+    (Relation. (merge ^S ^R
+                      {:fields (concat (fields R) (fields S)), 
+                       :index new-index})
+               {'seq (fn [_] (map join-tuple R))
+                'count (fn [_] (count R))
+                'get (fn [_ k] (index-lookup new-index k))})))
+
+;; (outer-join people :id (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2}) :id2)
+;;; right-inner-join:
+;; (select (join people :id (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2}) :id2) (condition ~id2))
+
+
+
+(let [R people
+      r :id
+      S (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2})
+      s :id2
+      index-Ss (find (index S) s)
+      join-tuple (fn join-tuple [r-tup] 
+   
+                   (merge r-tup (first ((val index-Ss) (r-tup r)))))
+      reverse-join (fn reverse-join [s-tup] (set (map join-tuple ((index R) r))))
+                                        ;new-index (lazy-merge (map-index-tuples join-tuple R) (map-index #(map reverse-join %) S))
+      x (map-index-tuples join-tuple (index R))
+      ]
+  
+  )
+
+(val (de.kotka.lazymap.LazyMapEntry. :a (delay :b)))
+
+
+
+
+(defmacro test-delay [x]
+  `(delay (println :forcing ~x) ~x))
+
+(let [a (lazy-hash-map :a (test-delay 1) :b (test-delay 2))
+      b (lazy-hash-map :c (test-delay 3) :b (test-delay 4))
+      c (:a (lazy-merge a b))]
+  c)
+
+(let [tup ((first people) :id)]
+  (merge tup)
+  (((index people) :id) tup))
+
+(((index people) :id) 1)
+#{{:id 1, :name weilandt, :vorname mathias, :adress-id 100}}
+{1 #{{:id 1, :name weilandt, :vorname mathias, :adress-id 100}}, 3 #{{:id 3, :name schmock, :vorname robert, :adress-id 101}}, 4 #{{:id 4, :name hamann, :vorname robert, :adress-id 102}}, 5 #{{:id 5, :name soehnel, :vorname erik, :adress-id 103}}, 6 #{{:id 6, :name zschieschang, :vorname mandy, :adress-id 103}}, 2 #{{:id 2, :name kirsch, :vorname diana, :adress-id 100}}, 7 #{{:id 7, :name unknown, :vorname unknown, :adress-id 104}}}
+
+
+(map-index-tuples #(select-keys % '(:id :name)) (index people))
+
+
+
+
+
 
 
 

@@ -76,8 +76,8 @@
 ; Associative
 (defn- -containsKey
   [this k]
-  (or (contains? (state :new-map)) 
-      (contains? (state :map))))
+  (or (contains? (state :new-map) k) 
+      (contains? (state :map) k)))
 
 (defn- -entryAt
   [this k]
@@ -110,10 +110,9 @@
   (let [n (state :new-map)
         m (state :map)
         f (state :fn)]
-    (concat n (map (fn [[k v]]
-                     (if (not (contains? n k))
-                       (LazyMapEntry. k (delay (f v)))))
-                   m))))
+    (lazy-cat n (map (fn [e] (if (not (contains? n (key e)))
+                               (LazyMapEntry. (key e) (delay (f (val e))))))
+                     m))))
 
 (defn- -cons
   [this o]
@@ -121,9 +120,7 @@
 
 (defn- -empty
   [this]
-  (empty (state :map))
-  ;(mutate-self :fn identity :map  :new-map nil)
-  )
+  (empty (state :map)))
 
 ; IFn
 (defn- -invoke

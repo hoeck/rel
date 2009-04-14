@@ -30,6 +30,13 @@
 (defn op-dispatch-fn [relation & rest]
   (:relation-tag ^relation))
 
+(defn join-dispatch [R r, S s]
+  (let [tag-r (:relation-tag ^R)
+        tag-s (:relation-tag ^S)]
+    (or (or (nil? tag-r) (nil? tag-s))
+        (and (= tag-r tag-s) tag-r)
+        :clojure)))
+
 (defn two-op-dispatch-fn [R, S & rest]
   (let [tag-r (:relation-tag ^R)
         tag-s (:relation-tag ^S)]
@@ -41,7 +48,11 @@
 (defmulti select op-dispatch-fn)
 (defmulti rename op-dispatch-fn)
 (defmulti xproduct two-op-dispatch-fn)
-(defmulti join two-op-dispatch-fn) ;; right inner join
+
+(defmulti join join-dispatch) ;; natural-join
+(defmulti outer-join join-dispatch) ;; right-outer-join
+(defmulti full-outer-join join-dispatch)
+
 (defmulti union two-op-dispatch-fn)
 (defmulti difference two-op-dispatch-fn)
 (defmulti intersection two-op-dispatch-fn)
@@ -58,11 +69,7 @@
                                     (class dispatch-arg))))
 
 
-;; meta-operators
-
-; (left-join, outer-join, convinience macros)
-
-
+;; join: define definition of joins in terms of other joins
 
 
 
