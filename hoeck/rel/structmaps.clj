@@ -34,10 +34,7 @@
         hoeck.value-mapped-map
 ;        hoeck.rel.core       
         hoeck.rel.operators   
-        hoeck.rel.conditions  
-        clojure.contrib.fcase 
-        de.kotka.lazymap      
-        com.infolace.format) ;; cl-format, pprint
+        hoeck.rel.conditions) ;; cl-format, pprint
   (:import (de.kotka.lazymap LazyMap)
            (hoeck.rel Relation)))
                                  
