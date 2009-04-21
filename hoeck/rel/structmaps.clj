@@ -27,6 +27,7 @@
 ;;; relational algebra on clojure sets
 
 (ns hoeck.rel.structmaps
+  (:refer-clojure :exclude [select-keys])
   (:require [clojure.set :as clojure-set])
   (:use hoeck.library 
         hoeck.magicmap 
@@ -34,10 +35,10 @@
         hoeck.value-mapped-map
 ;        hoeck.rel.core       
         hoeck.rel.operators   
-        hoeck.rel.conditions) ;; cl-format, pprint
-  (:import (de.kotka.lazymap LazyMap)
-           (hoeck.rel Relation)))
-                                 
+        hoeck.rel.conditions
+        de.kotka.lazymap) ;; cl-format, pprint
+  (:import (hoeck.rel Relation)))
+
 
 (def people-literal
      '#{{:id 1 :name weilandt,     :vorname mathias,   :adress-id 100}
@@ -110,8 +111,8 @@
 
 (def example-project-expression
      (read-expressions
-      (condition (str ~name ", " ~vorname) :full-name)
-      :id))
+      (list (condition (str ~name ", " ~vorname) :full-name)
+            :id)))
 
 ;; split that into
 ;;   a `pure' (identity) projection function
@@ -215,6 +216,18 @@
 
 ;;; example: (select (project people '(:id :name)) (condition (< ~id 4)))
 
+(defn select-keys
+  "Returns a map containing only those entries in map whose key is in keys"
+  [map keyseq]
+    (loop [ret (empty map) keys (seq keyseq)]
+      (if keys
+        (let [entry (. clojure.lang.RT (find map (first keys)))]
+          (recur
+           (if entry
+             (conj ret entry)
+             ret)
+           (next keys)))
+        ret)))
 
 (defn lazily-rename-keys
   ;; needs clojure.core/select-keys be fixed to use (empty map) instead of just {} !!!
@@ -223,7 +236,7 @@
   [map kmap]
   (reduce 
    (fn [m [old new]]
-     (if (not= old new)
+     (if (and (not= old new) (contains? m old))
        (lazy-assoc* (dissoc m old) new (.getRawValue (find m old)))
        m))
    map kmap))
@@ -247,9 +260,9 @@
 (defmethod outer-join :clojure [R r S s]
   (let [index-Ss (find (index S) s)
         join-tuple (fn [r-tup] (merge r-tup (first ((val index-Ss) (r-tup r)))))
-        reverse-join (fn [s-tup] (set (map join-tuple ((index R) r))))
-        new-index (lazy-merge (map-index-tuples join-tuple R)
-                              (map-index #(map reverse-join %) S))]
+        reverse-join (fn [s-tup] (set (map join-tuple (((index R) r) (s-tup s)))))
+        new-index (lazy-merge (map-index-tuples join-tuple (index R))
+                              (map-index #(set (map reverse-join %)) (index S)))]
     (Relation. (merge ^S ^R
                       {:fields (concat (fields R) (fields S)), 
                        :index new-index})
@@ -259,54 +272,4 @@
 
 ;; (outer-join people :id (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2}) :id2)
 ;;; right-inner-join:
-;; (select (join people :id (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2}) :id2) (condition ~id2))
-
-
-
-(let [R people
-      r :id
-      S (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2})
-      s :id2
-      index-Ss (find (index S) s)
-      join-tuple (fn join-tuple [r-tup] 
-   
-                   (merge r-tup (first ((val index-Ss) (r-tup r)))))
-      reverse-join (fn reverse-join [s-tup] (set (map join-tuple ((index R) r))))
-                                        ;new-index (lazy-merge (map-index-tuples join-tuple R) (map-index #(map reverse-join %) S))
-      x (map-index-tuples join-tuple (index R))
-      ]
-  
-  )
-
-(val (de.kotka.lazymap.LazyMapEntry. :a (delay :b)))
-
-
-
-
-(defmacro test-delay [x]
-  `(delay (println :forcing ~x) ~x))
-
-(let [a (lazy-hash-map :a (test-delay 1) :b (test-delay 2))
-      b (lazy-hash-map :c (test-delay 3) :b (test-delay 4))
-      c (:a (lazy-merge a b))]
-  c)
-
-(let [tup ((first people) :id)]
-  (merge tup)
-  (((index people) :id) tup))
-
-(((index people) :id) 1)
-#{{:id 1, :name weilandt, :vorname mathias, :adress-id 100}}
-{1 #{{:id 1, :name weilandt, :vorname mathias, :adress-id 100}}, 3 #{{:id 3, :name schmock, :vorname robert, :adress-id 101}}, 4 #{{:id 4, :name hamann, :vorname robert, :adress-id 102}}, 5 #{{:id 5, :name soehnel, :vorname erik, :adress-id 103}}, 6 #{{:id 6, :name zschieschang, :vorname mandy, :adress-id 103}}, 2 #{{:id 2, :name kirsch, :vorname diana, :adress-id 100}}, 7 #{{:id 7, :name unknown, :vorname unknown, :adress-id 104}}}
-
-
-(map-index-tuples #(select-keys % '(:id :name)) (index people))
-
-
-
-
-
-
-
-
-
+;; (select (outer-join people :id (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2}) :id2) (condition ~id2))
