@@ -173,7 +173,7 @@
         
         seq-fn (fn seq-fn [_] (distinct (map project-tuple R)))
         count-fn (fn count-fn [this] (count (seq this)))
-        get-fn (fn get-fn [this tup] (new-index tup))]
+        get-fn (fn get-fn [this tup] (first (index-lookup new-index tup)))]
     (Relation. (merge (meta R) {:fields field-names :index new-index})
                {'seq seq-fn
                 'count count-fn
@@ -193,7 +193,7 @@
 
            seq-fn (fn [this] (distinct (map project-tuple R)))
            count-fn (fn [this] (count (seq this)))
-           get-fn (fn [this tup] (index-lookup new-index tup))]
+           get-fn (fn [this tup] (first (index-lookup new-index tup)))]
        (Relation. (merge ^R {:fields (concat (fields R) new-field) :index new-index})
                   {'seq seq-fn
                    'count count-fn
@@ -220,7 +220,7 @@
 (defmethod select :clojure [R expr]
   (let [new-index (filter-index expr (index R))
         seq-fn (fn [_] (distinct (filter expr R)))
-        get-fn (fn [_ k] (index-lookup new-index k))
+        get-fn (fn [_ k] (first (index-lookup new-index k)))
         count-fn (fn [_] (count (seq-fn _)))]
     (Relation. (merge (meta R) {:index new-index})
                {'seq seq-fn
@@ -245,7 +245,7 @@
     (Relation. (merge (meta R) {:index new-index})
                {'seq (fn [_] (seq (clojure.set/rename R kmap)))
                 'count (fn [_] (count R))
-                'get (fn [_ k] (index-lookup new-index k))})))
+                'get (fn [_ k] (first (index-lookup new-index k)))})))
 
 ;;; example: (index (rename (select (project people '(:id :name)) (condition (< ~id 4))) {:id :ident-number}))
 
@@ -267,7 +267,7 @@
                        :index new-index})
                {'seq (fn [_] (map join-tuple R))
                 'count (fn [_] (count R))
-                'get (fn [_ k] (index-lookup new-index k))})))
+                'get (fn [_ k] (first (index-lookup new-index k)))})))
 
 ;; (outer-join people :id (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2}) :id2)
 ;;; right-inner-join:
@@ -275,21 +275,13 @@
 
 
 (defmethod union :clojure [R S]
-  (let [new-index (map-index #(clojure.set/union % ((index S))) (index R))]
-    (Relation (merge ^S ^R {:index new-index})
-              {'seq (fn [_] (seq (clojure.set/union R S)))
-               'get (fn [_ k] )
+  (let [index-union (fn [a b] (reduce #(assoc %1 %2 (clojure.set/union (a %2) (b %2))) a (keys b)))
+        new-index (apply lazy-hash-map* #(clojure.set/union % ((index S)))
+                         (mapcat (fn [k] [k (index-union ((index R) k) ((index S) k))])
+                                 (concat (keys (index R)) (keys (index S)))))]
+    (Relation. (merge ^S ^R {:index new-index})
+              {'seq (fn [_] (lazy-cat R (filter (complement R) S)))
+               'get (fn [_ k] (or (R k) (S k)))
                'count (fn [this] (count (seq this)))})))
 
-x  y
-:a 1
-:a 2   {x {:a [1 2]}
-
-:b 2   
-:a 3   :a [3] :b [2]
-
-:a 1
-:a 2
-:a 3
-:b 2   :a [1 2 3] :b 2
 

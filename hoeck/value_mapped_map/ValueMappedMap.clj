@@ -110,9 +110,9 @@
   (let [n (state :new-map)
         m (state :map)
         f (state :fn)]
-    (lazy-cat n (map (fn [e] (if (not (contains? n (key e)))
-                               (LazyMapEntry. (key e) (delay (f (val e))))))
-                     m))))
+    (lazy-cat n (filter identity (map (fn [e] (if (and e (not (contains? n (key e)))) ;; check why the e can be nil here !!!
+                                                (LazyMapEntry. (key e) (delay (f (val e))))))
+                     m)))))
 
 (defn- -cons
   [this o]
@@ -136,11 +136,11 @@
     2 (.valAt this (first ks) (second ks))
     (throw (IllegalArgumentException. "Wrong number of args passed to: ValueMappedMap"))))
 
-
 )
 
 ;; +++ bootstrap +++
 ;; (require 'hoeck.value-mapped-map.ValueMappedMap :reload)
 ;; (binding [*compile-path* "/home/timmy-turner/clojure/classes"] (compile 'hoeck.value-mapped-map.ValueMappedMap))
+;; (binding [*compile-path* "g:\\clojure\\classes"] (compile 'hoeck.value-mapped-map.ValueMappedMap))
 
 
