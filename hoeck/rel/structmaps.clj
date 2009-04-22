@@ -28,7 +28,7 @@
 
 (ns hoeck.rel.structmaps
   (:refer-clojure :exclude [select-keys])
-  (:require [clojure.set :as clojure-set])
+  (:require clojure.set)
   (:use hoeck.library 
         hoeck.magicmap 
         hoeck.mapped-map
@@ -39,6 +39,19 @@
         de.kotka.lazymap) ;; cl-format, pprint
   (:import (hoeck.rel Relation)))
 
+;; type aware select-keys
+(defn select-keys
+  "Returns a map containing only those entries in map whose key is in keys"
+  [map keyseq]
+    (loop [ret (empty map) keys (seq keyseq)]
+      (if keys
+        (let [entry (. clojure.lang.RT (find map (first keys)))]
+          (recur
+           (if entry
+             (conj ret entry)
+             ret)
+           (next keys)))
+        ret)))
 
 (def people-literal
      '#{{:id 1 :name weilandt,     :vorname mathias,   :adress-id 100}
@@ -216,21 +229,7 @@
 
 ;;; example: (select (project people '(:id :name)) (condition (< ~id 4)))
 
-(defn select-keys
-  "Returns a map containing only those entries in map whose key is in keys"
-  [map keyseq]
-    (loop [ret (empty map) keys (seq keyseq)]
-      (if keys
-        (let [entry (. clojure.lang.RT (find map (first keys)))]
-          (recur
-           (if entry
-             (conj ret entry)
-             ret)
-           (next keys)))
-        ret)))
-
 (defn lazily-rename-keys
-  ;; needs clojure.core/select-keys be fixed to use (empty map) instead of just {} !!!
   "Returns the map with the keys in kmap renamed to the vals in kmap.
   Map must be a LazyMap or ValueMappedMap of a LazyMap."
   [map kmap]
@@ -252,7 +251,7 @@
 
 
 (defn lazy-merge
-  "given lazy hashmaps a and b, merge those without calculating the keys."
+  "given lazy hashmaps a and b, merge those without forcing the keys."
   [a b]
   (reduce #(lazy-assoc* %1 (key %2) (.getRawValue %2)) a b))
 
@@ -273,3 +272,24 @@
 ;; (outer-join people :id (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2}) :id2)
 ;;; right-inner-join:
 ;; (select (outer-join people :id (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2}) :id2) (condition ~id2))
+
+
+(defmethod union :clojure [R S]
+  (let [new-index (map-index #(clojure.set/union % ((index S))) (index R))]
+    (Relation (merge ^S ^R {:index new-index})
+              {'seq (fn [_] (seq (clojure.set/union R S)))
+               'get (fn [_ k] )
+               'count (fn [this] (count (seq this)))})))
+
+x  y
+:a 1
+:a 2   {x {:a [1 2]}
+
+:b 2   
+:a 3   :a [3] :b [2]
+
+:a 1
+:a 2
+:a 3
+:b 2   :a [1 2 3] :b 2
+
