@@ -274,15 +274,46 @@
 ;; (select (outer-join people :id (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2}) :id2) (condition ~id2))
 
 
-(defmethod union :clojure [R S]
-  (let [new-index (magic-map (fn ([] (distinct (concat (keys (index A)) (keys (index B)))))
-                                 ([k] (let [a (get (index A) k), b (get (index B) k)] ;; the value index of field k
-                                        (magic-map (fn ([] (distinct (lazy-cat (keys a) (keys b))))
-                                                       ([k] (clojure.set/union (a k) (b k)))))))))]
-    (Relation. (merge ^S ^R {:index new-index
-                             :fields (distinct (concat (fields S) (fields R)))})
-              {'seq (fn [_] (lazy-cat R (filter (complement R) S)))
-               'get (fn [_ k] (or (R k) (S k)))
-               'count (fn [this] (count (seq this)))})))
+;;; two macros for writing set-operations:
+(defmacro modify-index-for-set
+  "uses R,S as the surrounding Relation vars, and binds r and s to the current index of R and S.
+  Captures: r and s, uses R and S."
+  [magic-map-fn]
+  (let [;; index accessors, must be lazy
+        index-R `(index ~'R)
+        index-S `(index ~'S)]
+    ;; implement operations on relation index by creating a nested magicmap which delegates the 
+    ;; entry-retrieval to the indexes of R and S
+    `(magic-map (fn ([] (distinct (concat (keys ~index-R) (keys ~index-S)))) ;; seq of fields the index contains
+                    ([k#] (let [~'r (get ~index-R k#), ~'s (get ~index-S k#)] ;; the contents of a specific field index
+                            (magic-map ~magic-map-fn))))))) ;; combine r and s to compute a resulting index
 
+(defmacro def-set-operator
+  "Captures R and S"
+  [op-name, index-map-fn, seq-fn, get-fn]
+  (let [R 'R, S 'S]
+    `(defmethod ~op-name :clojure [~R ~S]
+       (Relation. (merge ^~S ^~R {:index (modify-index-for-set ~index-map-fn)
+                                  :fields (distinct (concat (fields ~S) (fields ~R)))})
+                  {'~'seq ~seq-fn
+                   '~'get ~get-fn
+                   '~'count (fn [this#] (count (seq this#)))}))))
+
+(def-set-operator union ;; given 2 relations R and S
+  (fn ([] (distinct (concat (keys r) (keys s))))
+      ([k] (clojure.set/union (get r k) (get s k))))
+  (fn [_] (lazy-cat R (filter (complement R) S))) ;; seq
+  (fn [_ k] (or (R k) (S k)))) ;; get
+  
+(def-set-operator difference
+  (fn ([] (distinct (concat (keys r) (keys s))))
+      ([k] (clojure.set/difference (get r k) (get s k))))
+  (fn [_] (filter (complement S) R)) ;; seq
+  (fn [_ k] (and (not (S k)) (R k)))) ;; get
+
+(def-set-operator intersection
+  (fn ([] (distinct (concat (keys r) (keys s))))
+      ([k] (clojure.set/intersection (get r k) (get s k))))
+  (fn [_] (distinct (lazy-cat (filter S R) (filter R S)))) ;; seq
+  (fn [_ k] (and (S k) (R k)))) ;; get
 
