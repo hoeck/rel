@@ -1,5 +1,6 @@
 
 
+
 (ns hoeck.rel.structmaps)
 
 (use 'de.kotka.lazymap)
@@ -44,32 +45,17 @@ hoeck.value_mapped_map.ValueMappedMap
 (def A (project (select people (condition (or (= 'robert ~vorname) (= ~id 1)))) '(:name :vorname)))
 (def B (project (select people (condition (< 1 ~id 4))) '(:name :vorname)))
 
-(union A B)
 
 
-(:vorname (index A))
-{mathias #{{:vorname mathias, :name weilandt}}
- robert #{{:vorname robert, :name hamann} {:vorname robert, :name schmock}}}
+(index (union A B))
+(index (difference A B))
+(index (intersection A B))
 
-(:vorname (index B))
-{robert #{{:vorname robert, :name schmock}}
- diana #{{:vorname diana, :name kirsch}}}
-
-(:vorname (lazy-merge (index A)
-                      (index B)))
-
-(defn index-union [a b]
-
-(index-union (:vorname (index A)) (:vorname (index B)))
-
-(keys (:vorname (index B)))
-
-(assoc (:vorname (index A)) 'mathias (clojure.set/union ((:vorname (index A)) 'unknown) ((:vorname (index B)) 'mathias)))
-  
-(mathias robert erik mandy diana unknown)
-
-
-
-
-
+A -> #{{:vorname robert, :name hamann} {:vorname robert, :name schmock} {:vorname mathias, :name weilandt}}
+B -> #{{:vorname diana, :name kirsch} {:vorname robert, :name schmock}} 
+(intersection A B) -> #{{:vorname robert, :name schmock}}
+(difference A B) -> #{{:vorname robert, :name hamann} {:vorname mathias, :name weilandt}}
+(difference B A) -> #{{:vorname diana, :name kirsch}}
+(= (union A B) (union B A)) -> true
+(= (intersection A B) (intersection B A)) -> true
 
