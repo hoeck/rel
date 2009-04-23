@@ -30,7 +30,7 @@
   (:refer-clojure :exclude [select-keys])
   (:require clojure.set)
   (:use hoeck.library 
-        hoeck.magicmap 
+        hoeck.magic-map 
         hoeck.mapped-map
         hoeck.value-mapped-map
 ;        hoeck.rel.core       
@@ -275,11 +275,12 @@
 
 
 (defmethod union :clojure [R S]
-  (let [index-union (fn [a b] (reduce #(assoc %1 %2 (clojure.set/union (a %2) (b %2))) a (keys b)))
-        new-index (apply lazy-hash-map* #(clojure.set/union % ((index S)))
-                         (mapcat (fn [k] [k (index-union ((index R) k) ((index S) k))])
-                                 (concat (keys (index R)) (keys (index S)))))]
-    (Relation. (merge ^S ^R {:index new-index})
+  (let [new-index (magic-map (fn ([] (distinct (concat (keys (index A)) (keys (index B)))))
+                                 ([k] (let [a (get (index A) k), b (get (index B) k)] ;; the value index of field k
+                                        (magic-map (fn ([] (distinct (lazy-cat (keys a) (keys b))))
+                                                       ([k] (clojure.set/union (a k) (b k)))))))))]
+    (Relation. (merge ^S ^R {:index new-index
+                             :fields (distinct (concat (fields S) (fields R)))})
               {'seq (fn [_] (lazy-cat R (filter (complement R) S)))
                'get (fn [_ k] (or (R k) (S k)))
                'count (fn [this] (count (seq this)))})))
