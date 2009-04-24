@@ -249,11 +249,11 @@
 
 ;;; example: (index (rename (select (project people '(:id :name)) (condition (< ~id 4))) {:id :ident-number}))
 
-
 (defn lazy-merge
-  "given lazy hashmaps a and b, merge those without forcing the keys."
+  "given two hashmaps a and b, merge those lazily."
   [a b]
-  (reduce #(lazy-assoc* %1 (key %2) (.getRawValue %2)) a b))
+  (magic-map a (fn ([] (keys b))
+                   ([k] (get b k)))))
 
 ;; (right) outer-join
 (defmethod outer-join :clojure [R r S s]
@@ -278,6 +278,7 @@
 (defmacro modify-index-for-set
   "uses R,S as the surrounding Relation vars, and binds r and s to the current index of R and S.
   Captures: r and s, uses R and S."
+  {:private :true}
   [magic-map-fn]
   (let [;; index accessors, must be lazy
         index-R `(index ~'R)
@@ -290,6 +291,7 @@
 
 (defmacro def-set-operator
   "Captures R and S"
+  {:private true}
   [op-name, index-map-fn, seq-fn, get-fn]
   (let [R 'R, S 'S]
     `(defmethod ~op-name :clojure [~R ~S]
