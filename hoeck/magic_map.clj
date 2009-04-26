@@ -12,7 +12,9 @@ f. Optionally a additional hashmap may be supplied.
 For side-effecting functions, one should use memoize around to prevent
 violating the map's interface. Associng and dissocing works by keeping a
 internal hashmap of assoc'd values and a set of dissoc'd keys, which
-take precedence over the function generated values."
+take precedence over the function generated values.
+The Resulting map makes no difference between a key pointing to nil and
+a key not being present at all."
   ([] (magic-map {}))
   ([hashmap-or-fn]
      (let [m (if (map? hashmap-or-fn) hashmap-or-fn {})

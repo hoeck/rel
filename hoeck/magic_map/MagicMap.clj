@@ -17,11 +17,6 @@
   [prop-map]
   [[] prop-map])
 
-
-;(defn- -lazyAssoc
-;  [this k v]
-;  (new de.kotka.lazymap.LazyMap (-> this .theMap (.assoc k v))))
-
 (defmacro prop [] `(.prop-map ~'this ))
 (defmacro prop-map  [] `((prop) :map))
 (defmacro prop-fn   [] `((prop) :fn))
@@ -73,7 +68,7 @@
          (if (not ((prop-set) k))
            ((prop-fn) k))))
   ([this k nf]
-     (or (.valAt this k) nf)))   
+     (or (.valAt this k) nf)))
 
 (defn- -entryAt
   [this k]
@@ -124,6 +119,13 @@
 (defn- -applyTo
   [this ks]
   (. this valAt (first ks)))
+
+(defn- -lazyAssoc
+  [this k v]
+  (hoeck.magic_map.MagicMap.
+   (assoc (prop)
+     :map (.lazyAssoc (prop-map) k v)
+     :set (disj (prop-set) k))))
 
 )
 
