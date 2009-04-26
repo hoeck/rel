@@ -27,6 +27,10 @@
 (ns hoeck.rel.operators)
 
 ;; relational algebra operations
+
+(defn type-dispatch [thing & opts]
+  (type thing))
+
 (defn op-dispatch-fn [relation & rest]
   (:relation-tag ^relation))
 
@@ -59,14 +63,10 @@
 (defmulti order-by op-dispatch-fn)
 
 ;; `private' operators
-(defmulti make-index op-dispatch-fn)
+(defmulti make-index type-dispatch)
 
 ;; constructor methods
-(defmulti make-relation (fn [dispatch-arg & initargs] 
-                            (cond (keyword? dispatch-arg)
-                                    dispatch-arg
-                                  :else
-                                    (class dispatch-arg))))
+(defmulti make-relation type-dispatch)
 
 
 ;; join: define definition of joins in terms of other joins
