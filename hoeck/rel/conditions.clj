@@ -120,7 +120,7 @@
               :type :user
               :name '~(or condition-name 
                           ;; provide a default field-name: ????
-                          (keyword (apply str (interpose '- (map name (cons (first expr) fields))))))})
+                          (keyword (apply str (interpose '- (map name (concat fields (list (gensym))))))))})
           ([~tuple-sym]
              ~fn-expr)))))
 
