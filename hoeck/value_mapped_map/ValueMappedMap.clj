@@ -85,8 +85,7 @@
 
 (defn- -entryAt
   [this k]
-  (or (and (state :new-map)
-           (find (state :new-map) k))
+  (or (and (find (state :new-map) k))
       (and (contains? (state :map) k)
            (LazyMapEntry. k (delay ((state :fn) ((state :map) k)))))))
 
