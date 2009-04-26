@@ -28,20 +28,20 @@
 
 (ns hoeck.rel.structmaps
   (:refer-clojure :exclude [select-keys])
-  (:require clojure.set)
-  (:use hoeck.library 
-        hoeck.magic-map 
-        hoeck.mapped-map
-        hoeck.value-mapped-map
-;        hoeck.rel.core       
-        hoeck.rel.operators   
-        hoeck.rel.conditions
-        de.kotka.lazymap) ;; cl-format, pprint
+  (:require clojure.set
+            [hoeck.rel.testdata :as testdata])
+  (:use (hoeck library magic-map value-mapped-map)
+        (hoeck.rel operators conditions)
+        [hoeck.rel.testdata :only [with-testdata]]
+        de.kotka.lazymap
+        ;; cl-format, pprint
+        clojure.contrib.test-is)
   (:import (hoeck.rel Relation)))
 
 ;; type aware select-keys
 (defn select-keys
-  "Returns a map containing only those entries in map whose key is in keys"
+  "Returns a map of the same type as map containing only those entries in map
+  whose key is in keys"
   [map keyseq]
     (loop [ret (empty map) keys (seq keyseq)]
       (if keys
@@ -53,23 +53,14 @@
            (next keys)))
         ret)))
 
-(def people-literal
-     '#{{:id 1 :name weilandt,     :vorname mathias,   :adress-id 100}
-        {:id 2 :name kirsch,       :vorname diana      :adress-id 100}
-        {:id 3 :name schmock,      :vorname robert     :adress-id 101}
-        {:id 4 :name hamann,       :vorname robert     :adress-id 102}
-        {:id 5 :name soehnel,      :vorname erik       :adress-id 103}
-        {:id 6 :name zschieschang, :vorname mandy      :adress-id 103}
-        {:id 7 :name unknown,      :vorname unknown    :adress-id 104}})
-
 (def empty-relation)
 
 (defn fields [R] (:fields ^R))
 (defn index [R] (:index ^R))
 
-(def people (with-meta people-literal
-                       {:relation-tag :clojure
-                        :fields #{:id :name :vorname :adress-id}}))
+;(def people (with-meta people-literal
+;                       {:relation-tag :clojure
+;                        :fields #{:id :name :vorname :adress-id}}))
 
 (defn- set-index
   "Returns a map of the distinct values of k in the xrel mapped to a
@@ -87,9 +78,9 @@
      (empty?->nil
       (apply clojure.set/intersection (map (fn [[k v]] ((index-map k) v)) tuple)))))
 
-(defmethod make-index :clojure [R & opts]
+(defmethod make-index clojure.lang.IPersistentSet [R fields & opts]
   (let [;; lazy index
-        index-map (apply lazy-hash-map* (mapcat #(list %  (delay (set-index R %))) (fields R)))
+        index-map (apply lazy-hash-map* (mapcat #(list %  (delay (set-index R %))) fields))
         ;; index-hashmap, lazy, looks exactly like the index-function in clojure.set
 ;        index-interface (magicmap (fn 
 ;                                    ([] (mapcat #(map (partial hash-map %) (keys (index-map %))) (fields R)))
@@ -101,12 +92,24 @@
         ]
     index-map))
 
-(def people (with-meta people (merge ^people {:index (make-index people)})))
+;(def people (with-meta people (merge ^people {:index (make-index people)})))
 
-; magic-map:
-;  an object implementing IPersistentMap using
-;  (1) a normal map of keys -> values
-;  (2) a dispatch function mapping keys (key-ranges) to functions
+(defmethod make-relation clojure.lang.IPersistentSet
+  [S & opts]
+  (let [o (apply hash-map opts)
+        f (or (o :fields) (keys (first S)))]
+    (with-meta S (merge ^S {:relation-tag :clojure
+                            :fields f
+                            :index (make-index S f)}))))
+
+(deftest make-relation-test
+  (with-testdata
+    (is (= (set (fields R)) testdata/fields-R))
+    (is (= (set (fields S)) testdata/fields-S))
+    (is (= R testdata/people))
+    (is (= (index R) testdata/index-R))
+    (is (= S testdata/address))
+    (is (= (index S) testdata/index-S))))
 
 (defn- field?
   [form]
@@ -162,7 +165,7 @@
         ;;projected-struct (apply create-struct field-names)
         project-tuple (fn [tup] (select-keys tup field-names))
         
-        new-index (map-index-tuples project-tuple (select-keys (index R) field-names))                   
+        new-index (map-index-tuples project-tuple (select-keys (index R) field-names))
         ;;{:field {value #{ tuples }}}
         ;;  |        |        |
         ;;  |        |        `remove unprojected from each tuple
@@ -170,11 +173,12 @@
         ;;  |        `identity
         ;;  |
         ;;  `remove-all non-projected
-        
+
         seq-fn (fn seq-fn [_] (distinct (map project-tuple R)))
         count-fn (fn count-fn [this] (count (seq this)))
         get-fn (fn get-fn [this tup] (first (index-lookup new-index tup)))]
-    (Relation. (merge (meta R) {:fields field-names :index new-index})
+    (Relation. (merge (meta R) {:fields field-names
+                                :index new-index})
                {'seq seq-fn
                 'count count-fn
                 'get get-fn
@@ -194,7 +198,8 @@
            seq-fn (fn [this] (distinct (map project-tuple R)))
            count-fn (fn [this] (count (seq this)))
            get-fn (fn [this tup] (first (index-lookup new-index tup)))]
-       (Relation. (merge ^R {:fields (concat (fields R) new-field) :index new-index})
+       (Relation. (merge ^R {:fields (concat (fields R) new-field)
+                             :index new-index})
                   {'seq seq-fn
                    'count count-fn
                    'get get-fn})))
@@ -202,19 +207,37 @@
      (project-expression (apply project-expression R exprs) expr)))
 
 ;; example;
-;;(index (project-expression people (condition (* ~id 10)) (condition (- ~id 100)) (condition (+ ~id 1000))))
+;;(project-expression (make-relation testdata/people) (condition (* ~id 10)) (condition (- ~id 100)) (condition (+ ~id 1000)))
 
 (defmethod project :clojure [R exprs]
   (let [exprs (read-expressions exprs)
         identity-expr? #(= (:type (condition-meta %)) :identity)
         complex-exprs (filter (complement identity-expr?) exprs)
         all-projected-fields (map #(:name (condition-meta %)) exprs)]
-    (project-identity (if (seq complex-exprs) 
+    (project-identity (if (seq complex-exprs)
                         (apply project-expression R complex-exprs)
                         R)
                       all-projected-fields)))
 
-;; example: (project people (list :id (condition (str ~vorname "-" ~id)) :name))
+;; example: (project (make-relation testdata/people) (list :id (condition (str ~vorname "-" ~id)) :name))
+
+(deftest project-identity-test ;; identity == remove cols only
+  (with-testdata
+    (let [p (project R '(:vorname :id))]
+      (is (= (set (fields p)) #{:vorname :id}) "fields")
+      (is (= (set (fields p)) (set (keys (first p)))) "fields and first tuple")
+      (is (= p (project R '(:id :vorname))) "expression ordering")
+      (is (= (get-in (index p) '(:vorname robert)) '#{{:id 4, :vorname robert} {:id 3, :vorname robert}}) "index")
+      (is (= (index p) (make-index p (fields p))) "index")
+      (is (= (project p '(:vorname)) (project (project (project R '(:vorname :name :id)) '(:vorname :id)) '(:vorname))) "nesting")
+      (is (= #{} (project p ())) "empty projection"))))
+
+(deftest project-expr-test
+  (with-testdata
+    (let [expr (list :id (condition (str ~vorname "-" ~id) :name-id) :name)
+          p (project R expr)]
+      (is (= (map #(str (:vorname %) "-" (:id %)) R) (map :name-id p)) "expression")
+      (is (= (index p) (make-index p (fields p))) "index"))))
 
 
 (defmethod select :clojure [R expr]
@@ -228,6 +251,16 @@
                 'get get-fn})))
 
 ;;; example: (select (project people '(:id :name)) (condition (< ~id 4)))
+
+(deftest select-test
+  (with-testdata
+    (let [s (select R (condition (or (= ~id 3) (= ~id 4))))]
+      (is (= (count s) 2) "count")
+      ;(is (= (index s) (make-index s (fields s))) "index")
+      (is (= s (select R (condition (and (< -100 ~id) (< ~id 5) ((complement #{-1 0 1 2}) ~id))))) "equality")
+      (is (= (select R (condition ~id)) R) "equality")
+      (is (= s (select (select R (condition (< 2 ~id 5))) (condition (#{3 4} ~id))))))))
+
 
 (defn lazily-rename-keys
   "Returns the map with the keys in kmap renamed to the vals in kmap.
