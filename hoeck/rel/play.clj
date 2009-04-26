@@ -45,8 +45,6 @@ hoeck.value_mapped_map.ValueMappedMap
 (def A (project (select people (condition (or (= 'robert ~vorname) (= ~id 1)))) '(:name :vorname)))
 (def B (project (select people (condition (< 1 ~id 4))) '(:name :vorname)))
 
-
-
 (index (union A B))
 (index (difference A B))
 (index (intersection A B))
@@ -59,3 +57,19 @@ B -> #{{:vorname diana, :name kirsch} {:vorname robert, :name schmock}}
 (= (union A B) (union B A)) -> true
 (= (intersection A B) (intersection B A)) -> true
 
+(let [sec {:a 1 :c 3}]
+  (magic-map {:a 1 :b 2} (fn ([] (keys sec))
+                           ([k] (sec k))))) 
+
+(use 'clojure.contrib.test-is)
+(run-tests 'hoeck.rel.structmaps)
+
+(let [i (index (project-expression (make-relation testdata/people) (condition (str ~vorname "-" ~id))))]
+  (.entryAt i :name))
+
+(with-testdata
+  (let [s (select R (condition (or (= ~id 3) (= ~id 4))))]
+    (index s)
+    (make-index s (fields s))
+    
+    ))
