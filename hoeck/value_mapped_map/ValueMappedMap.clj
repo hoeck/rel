@@ -1,12 +1,16 @@
 
+;; a IPersistentMap implementation which takes a function and a hashmap
+;; and maps the function lazily over the entries of the hashmap forming
+;; new values
+
+
 (ns hoeck.value-mapped-map.ValueMappedMap
   (:require [hoeck.library :as library]
             [de.kotka.lazymap :as lazymap])
   (:gen-class
    :init         init
    :state        state
-   :implements   [clojure.lang.IPersistentMap clojure.lang.IFn
-                  clojure.lang.IObj]
+   :extends      clojure.lang.APersistentMap
    :methods      [[lazyAssoc [Object Object] clojure.lang.IPersistentMap]]
    :constructors {[clojure.lang.IFn clojure.lang.IPersistentMap] []
                   [clojure.lang.IFn clojure.lang.IPersistentMap clojure.lang.IPersistentMap] []})
