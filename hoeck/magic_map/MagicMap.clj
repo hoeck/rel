@@ -5,8 +5,7 @@
      :init         init
      :state        prop-map
      :methods      [[lazyAssoc [Object Object] clojure.lang.IPersistentMap]]
-     :implements   [clojure.lang.IPersistentMap clojure.lang.IFn
-                    clojure.lang.IObj]
+     :extends      clojure.lang.APersistentMap
      :constructors {[clojure.lang.IPersistentMap] []})
   (:import
      (clojure.lang SeqIterator IMapEntry MapEntry IPersistentVector IObj)))
