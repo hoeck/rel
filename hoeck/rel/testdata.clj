@@ -25,8 +25,7 @@
      '#{{:id 100 :city dresden :street fickpieschener-allee}
         {:id 101 :city dresden :street plattenbauweg}
         {:id 102 :city rostock :street plattenbauweg}
-        {:id 103 :city dresden :street bighaynstr}
-        {:id 104 :city unknown :street unknown}})
+        {:id 103 :city dresden :street bighaynstr}})
 
 (def fields-S '#{:id :city :street})
 
