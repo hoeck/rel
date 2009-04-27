@@ -67,9 +67,17 @@ B -> #{{:vorname diana, :name kirsch} {:vorname robert, :name schmock}}
 (let [i (index (project-expression (make-relation testdata/people) (condition (str ~vorname "-" ~id))))]
   (.entryAt i :name))
 
+(use 'clojure.contrib.pprint)
+
 (with-testdata
-  (let [s (select R (condition (or (= ~id 3) (= ~id 4))))]
-    (index s)
-    (make-index s (fields s))
-    
-    ))
+  (let [j (join R :adress-id S :id)]
+    (map #(= (% (index j))
+             (% (make-index j (fields j))))
+         (fields j))
+;    (fields j)
+;    [(:city (index j))
+
+
+
+
+

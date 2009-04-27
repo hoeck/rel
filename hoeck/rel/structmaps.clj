@@ -259,7 +259,7 @@
       ;(is (= (index s) (make-index s (fields s))) "index")
       (is (= s (select R (condition (and (< -100 ~id) (< ~id 5) ((complement #{-1 0 1 2}) ~id))))) "equality")
       (is (= (select R (condition ~id)) R) "equality")
-      (is (= s (select (select R (condition (< 2 ~id 5))) (condition (#{3 4} ~id))))))))
+      (is (= s (select (select R (condition (< 2 ~id 5))) (condition (#{3 4} ~id)))) "nesting"))))
 
 
 (defn lazily-rename-keys
@@ -275,12 +275,24 @@
 
 (defmethod rename :clojure [R kmap]
   (let [new-index (map-index-tuples #(clojure.set/rename-keys % kmap) (lazily-rename-keys (index R) kmap))]
-    (Relation. (merge (meta R) {:index new-index})
+    (Relation. (merge (meta R) {:fields (map #(kmap % %) (fields R))
+                                :index new-index})
                {'seq (fn [_] (seq (clojure.set/rename R kmap)))
                 'count (fn [_] (count R))
                 'get (fn [_ k] (first (index-lookup new-index k)))})))
 
 ;;; example: (index (rename (select (project people '(:id :name)) (condition (< ~id 4))) {:id :ident-number}))
+
+(deftest rename-test
+  (with-testdata
+   (let [rename-map {:id :pers-id, :vorname :first-name}
+         r (rename R rename-map)]
+     (is (= (count r) (count R)) "same length")
+     (is (= (clojure.set/difference (set (keys (first r))) (set (fields R))) #{:pers-id :first-name}) "keys renamed")
+     (is (= (clojure.set/difference (set (fields r)) (set (fields R))) #{:pers-id :first-name}) "fields renamed")
+     (is (= (clojure.set/difference (set (keys (first r))) (set (vals rename-map))) #{:name :adress-id}) "originial keys")
+     (is (= (clojure.set/difference (set (fields r)) (set (vals rename-map))) #{:name :adress-id}) "original fields")
+     (is (= (index r) (make-index r (fields r))) "index"))))
 
 (defn lazy-merge
   "given two hashmaps a and b, merge those lazily."
@@ -288,23 +300,26 @@
   (magic-map a (fn ([] (keys b))
                    ([k] (get b k)))))
 
-;; (right) outer-join
-(defmethod outer-join :clojure [R r S s]
+(defmethod join :clojure [R r S s]
   (let [index-Ss (find (index S) s)
-        join-tuple (fn [r-tup] (merge r-tup (first ((val index-Ss) (r-tup r)))))
-        reverse-join (fn [s-tup] (set (map join-tuple (((index R) r) (s-tup s)))))
-        new-index (lazy-merge (map-index-tuples join-tuple (index R))
-                              (map-index #(set (map reverse-join %)) (index S)))]
+        join-tuple (fn [r-tup] (let [friend (first ((val index-Ss) (r-tup r)))]
+                                 (if friend (merge r-tup (dissoc friend s)))))
+        reverse-join (fn [s-tup] (map join-tuple (((index R) r) (s-tup s))))
+        new-index (lazy-merge (map-index (fn [tuples] (set (filter identity (map join-tuple tuples)))) (index R))
+                              (map-index #(set (mapcat reverse-join %)) (dissoc (index S) s)))]
     (Relation. (merge ^S ^R
-                      {:fields (concat (fields R) (fields S)), 
+                      {:fields (concat (fields R) (filter #(not= s %) (fields S))), 
                        :index new-index})
-               {'seq (fn [_] (map join-tuple R))
+               {'seq (fn [_] (filter identity (map join-tuple R)))
                 'count (fn [_] (count R))
                 'get (fn [_ k] (first (index-lookup new-index k)))})))
 
-;; (outer-join people :id (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2}) :id2)
-;;; right-inner-join:
-;; (select (outer-join people :id (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2}) :id2) (condition ~id2))
+(deftest join-test
+  (with-testdata
+   (let [j (join R :adress-id S :id)]
+     (is (= (set (fields j)) (set (concat (fields R) (filter #(not= :id %) (fields S))))) "joined fields")
+     ;(is (= (index j) (make-index j (fields j))) "index")
+     )))
 
 
 ;;; two macros for writing set-operations:
