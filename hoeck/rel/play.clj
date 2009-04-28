@@ -7,7 +7,6 @@
   (require 'hoeck.value-mapped-map.ValueMappedMap :reload)
   (use 'clojure.contrib.test-is))
 
-
 (ns hoeck.rel.structmaps)
 
 (use 'de.kotka.lazymap)
@@ -39,15 +38,6 @@ hoeck.value_mapped_map.ValueMappedMap
 {:name {weilandt #{{:name weilandt, :id 1}}, schmock #{{:name schmock, :id 3}}, hamann #{}, soehnel #{}, zschieschang #{}, kirsch #{{:name kirsch, :id 2}}, unknown #{}}, :id {1 #{{:name weilandt, :id 1}}, 3 #{{:name schmock, :id 3}}, 4 #{}, 5 #{}, 6 #{}, 2 #{{:name kirsch, :id 2}}, 7 #{}}}
 #{{:name kirsch, :id 2} {:name schmock, :id 3} {:name weilandt, :id 1}}
 (def xxx (rename yyy {:id :ident-number}))
-
-(outer-join people :id (rename (project (select people (condition (< ~id 3))) '(:id :name)) {:id :id2, :name :name2}) :id2)
-#{{:id 7, :name unknown, :vorname unknown, :adress-id 104}
-  {:id2 2, :name2 kirsch, :id 2, :name kirsch, :vorname diana, :adress-id 100}
-  {:id 6, :name zschieschang, :vorname mandy, :adress-id 103}
-  {:id 5, :name soehnel, :vorname erik, :adress-id 103}
-  {:id 4, :name hamann, :vorname robert, :adress-id 102}
-  {:id 3, :name schmock, :vorname robert, :adress-id 101}
-  {:id2 1, :name2 weilandt, :id 1, :name weilandt, :vorname mathias, :adress-id 100}}
 
 (def A (project (select people (condition (or (= 'robert ~vorname) (= ~id 1)))) '(:name :vorname)))
 (def B (project (select people (condition (< 1 ~id 4))) '(:name :vorname)))
@@ -84,6 +74,12 @@ B -> #{{:vorname diana, :name kirsch} {:vorname robert, :name schmock}}
 ;    (fields j)
 ;    [(:city (index j))
 
+  (let [R (make-relation #{{:a 1 :b 1} {:a 2 :b 1}})
+        S (make-relation #{{:a 3 :b 1}})
+        T (make-relation #{{:a 1 :b 1}})        
+        u (union R S)
+        d (difference R T)]
+    (difference T R))
 
 
 

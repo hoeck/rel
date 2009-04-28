@@ -27,7 +27,6 @@
 (ns hoeck.rel.Relation
   (:gen-class :name hoeck.rel.Relation 
               :extends clojure.lang.APersistentSet
-              ;:implements [clojure.lang.IPersistentSet clojure.lang.IObj]
               :constructors {[clojure.lang.IPersistentMap clojure.lang.IPersistentMap] [clojure.lang.IPersistentMap clojure.lang.IPersistentMap]}
               :factory createRelation
               :state "state"
@@ -52,7 +51,11 @@
   [this key]
   (if (.get this key) true false))
 
-(def default-impl {'contains default-contains-fn})
+(defn default-empty-fn [this]
+  (with-meta #{} (assoc (.meta this) :index {})))
+
+(def default-impl {'contains default-contains-fn
+                     'empty default-empty-fn})
 
 (defn -init [metadata fn-map]
   [[metadata {}] (merge default-impl fn-map)])
@@ -60,10 +63,11 @@
 (defn -withMeta [this m]
   (hoeck.rel.Relation. m (.state this)))
 
-(def-method count) 
+(def-method count)
 (def-method get 1)
 (def-method seq)
 (def-method contains 1)
+(def-method empty)
 
 ;;;
 ;(require 'hoeck.rel.Relation)

@@ -58,10 +58,6 @@
 (defn fields [R] (:fields ^R))
 (defn index [R] (:index ^R))
 
-;(def people (with-meta people-literal
-;                       {:relation-tag :clojure
-;                        :fields #{:id :name :vorname :adress-id}}))
-
 (defn- set-index
   "Returns a map of the distinct values of k in the xrel mapped to a
   set of the maps in xrel with the corresponding values of k."
@@ -79,20 +75,23 @@
       (apply clojure.set/intersection (map (fn [[k v]] ((index-map k) v)) tuple)))))
 
 (defmethod make-index clojure.lang.IPersistentSet [R fields & opts]
-  (let [;; lazy index
-        index-map (apply lazy-hash-map* (mapcat #(list %  (delay (set-index R %))) fields))
-        ;; index-hashmap, lazy, looks exactly like the index-function in clojure.set
-;        index-interface (magicmap (fn 
-;                                    ([] (mapcat #(map (partial hash-map %) (keys (index-map %))) (fields R)))
-;                                    ([k];; a hashmap {:field val}
-;                                       (if (next k)
-;                                         (index-lookup index-map k))
-;                                       (let [[k,v] (first k)]
-;                                         ((index-map k) v)))))
-        ]
+  ;; lazy index
+  (let [index-map (apply lazy-hash-map* (mapcat #(list %  (delay (set-index R %))) fields))]
     index-map))
 
-;(def people (with-meta people (merge ^people {:index (make-index people)})))
+(defn- clean-index
+  "remove obviously empty index entries like: {:field {name #{} ..}}.
+  Used to test lazy relation indices."
+  [relation-index]
+  (magic-map (fn ([] (keys relation-index))
+                 ([k] (let [index (get relation-index k)]
+                        (magic-map (fn ([] (map key (filter #(not (empty? (val %))) index)))
+                                       ([k] (let [v (get index k)]
+                                              (if (not (empty? v)) v))))))))))
+
+(deftest clean-index-test
+  (let [i (make-index testdata/people (-> testdata/people first keys))]
+    (is (= (clean-index i) i)) "clean index"))
 
 (defmethod make-relation clojure.lang.IPersistentSet
   [S & opts]
@@ -133,7 +132,6 @@
 ;; split that into
 ;;   a `pure' (identity) projection function
 ;;   a `map' projection function, which adds new, unindexed values to a relation
-
 
 (defn map-index [index-fn, index]
   ;;{:field {value #{ tuples }}}
@@ -210,14 +208,16 @@
 ;;(project-expression (make-relation testdata/people) (condition (* ~id 10)) (condition (- ~id 100)) (condition (+ ~id 1000)))
 
 (defmethod project :clojure [R exprs]
-  (let [exprs (read-expressions exprs)
-        identity-expr? #(= (:type (condition-meta %)) :identity)
-        complex-exprs (filter (complement identity-expr?) exprs)
-        all-projected-fields (map #(:name (condition-meta %)) exprs)]
-    (project-identity (if (seq complex-exprs)
-                        (apply project-expression R complex-exprs)
-                        R)
-                      all-projected-fields)))
+  (if (empty? exprs)
+    (empty R)
+    (let [exprs (read-expressions exprs)
+          identity-expr? #(= (:type (condition-meta %)) :identity)
+          complex-exprs (filter (complement identity-expr?) exprs)
+          all-projected-fields (map #(:name (condition-meta %)) exprs)]
+      (project-identity (if (seq complex-exprs)
+                          (apply project-expression R complex-exprs)
+                          R)
+                        all-projected-fields))))
 
 ;; example: (project (make-relation testdata/people) (list :id (condition (str ~vorname "-" ~id)) :name))
 
@@ -367,11 +367,34 @@
   (fn [_ k] (and (S k) (R k)))) ;; get
 
 
-
-(deftest union-test
+(deftest set-operator-test
   (let [R (make-relation #{{:a 1 :b 1} {:a 2 :b 1}})
         S (make-relation #{{:a 3 :b 1}})
-        u (union R S)]
+        T (make-relation #{{:a 1 :b 1}})
+        E (make-relation #{})
+        u (union R S)
+        d (difference R T)
+        i (intersection R T)]
+    ;; union
     (is (= u (set (concat R S))) "union")
-    (is (= (index u) (make-index u '(:a :b))) "index")))
+    (is (= (union E E) #{}) "empty union")
+    (is (= (index u) (make-index u '(:a :b))) "union index")
+    (let [nested-u-1 (union u (union S T))
+          nested-u-2 (union (union R S) T)]
+      (is (= nested-u-1 nested-u-1) "union nesting")
+      (is (= (index nested-u-1)
+             (index nested-u-2)
+             (make-index nested-u-1 (fields nested-u-1))
+             (make-index nested-u-2 (fields nested-u-2))) "nested union index"))
+    (is (= (union u E) u) "empty union + nesting")
+    
+    ;; difference
+    (is (= d (set (filter (complement T) R))) "difference")
+    (is (= (difference R E) R) "difference empty")
+    (is (= (clean-index (index d)) (make-index d '(:a :b))) "difference index")
+    ;; intersection
+    (is (= i T) "intersection")
+    (is (= (intersection R E) E) "empty intersection")
+    (is (= (intersection (intersection R S) T) E) "intersection nesting")
+    (is (= (clean-index (index i)) (make-index i (fields i))))))
 
