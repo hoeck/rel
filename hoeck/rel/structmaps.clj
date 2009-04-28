@@ -239,7 +239,6 @@
       (is (= (map #(str (:vorname %) "-" (:id %)) R) (map :name-id p)) "expression")
       (is (= (index p) (make-index p (fields p))) "index"))))
 
-
 (defmethod select :clojure [R expr]
   (let [new-index (filter-index expr (index R))
         seq-fn (fn [_] (distinct (filter expr R)))
@@ -366,4 +365,13 @@
       ([k] (clojure.set/intersection (get r k) (get s k))))
   (fn [_] (distinct (lazy-cat (filter S R) (filter R S)))) ;; seq
   (fn [_ k] (and (S k) (R k)))) ;; get
+
+
+
+(deftest union-test
+  (let [R (make-relation #{{:a 1 :b 1} {:a 2 :b 1}})
+        S (make-relation #{{:a 3 :b 1}})
+        u (union R S)]
+    (is (= u (set (concat R S))) "union")
+    (is (= (index u) (make-index u '(:a :b))) "index")))
 

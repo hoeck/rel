@@ -1,4 +1,11 @@
 
+;; repl setup
+(do
+  (in-ns 'user)
+  (require 'hoeck.rel.structmaps)
+  (require 'hoeck.magic-map.MagicMap :reload)
+  (require 'hoeck.value-mapped-map.ValueMappedMap :reload)
+  (use 'clojure.contrib.test-is))
 
 
 (ns hoeck.rel.structmaps)
