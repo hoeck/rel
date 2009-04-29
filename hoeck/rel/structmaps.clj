@@ -105,10 +105,6 @@
     (is (= S testdata/address))
     (is (= (index S) testdata/index-S))))
 
-(defn- field?
-  [form]
-  (keyword? form))
-
 (defn read-expressions
   "Read a list of symbols or conditions and 
   convert all symbols to identity-conditions returning
@@ -225,7 +221,8 @@
       (is (= (get-in (index p) '(:vorname robert)) '#{{:id 4, :vorname robert} {:id 3, :vorname robert}}) "index")
       (is (= (index p) (make-index p (fields p))) "index")
       (is (= (project p '(:vorname)) (project (project (project R '(:vorname :name :id)) '(:vorname :id)) '(:vorname))) "nesting")
-      (is (= #{} (project p ())) "empty projection"))))
+      (is (= #{} (project p ())) "empty projection")
+      (is (and (= (project R (fields R)) R) (= (index (project R (fields R))) (index R))) "equality of identity-projection"))))
 
 (deftest project-expr-test
   (with-testdata
@@ -312,9 +309,24 @@
   (with-testdata
    (let [j (join R :adress-id S :id)]
      (is (= (set (fields j)) (set (concat (fields R) (filter #(not= :id %) (fields S))))) "joined fields")
-     ;(is (= (index j) (make-index j (fields j))) "index")
-     )))
+     (is (= (clean-index (index j)) (make-index j (fields j))) "index"))))
 
+(defmethod xproduct :clojure [R S]
+  (let [cross-tuple (fn [r-tup] (map #(merge r-tup %) S))]
+    (Relation. (merge ^S ^R {:fields (concat (fields R) (fields S))
+                             :index (lazy-merge (map-index (fn [tuples] (set (mapcat cross-tuple tuples))) (index R))
+                                                (map-index (fn [tuples] (set (mapcat #(map (partial merge %) R) tuples))) (index S)))})
+               {'seq (fn [_] (mapcat cross-tuple R))
+                'count (fn [_] (* (count R) (count S)))
+                'get (fn [_ tup] (and (R (select-keys tup (fields R)))
+                                      (S (select-keys tup (fields S)))))})))
+
+(deftest xproduct-test
+  (let [R (make-relation #{{:a 1 :b 1} {:a 1 :b 2}})
+        S (make-relation #{{:c 9 :f 8} {:c 2 :f 9}})
+        x (xproduct R S)]
+    (is (= (index x) (make-index x (fields x))) "crossproduct-index")
+    (is (= x (xproduct S R)) "crossproduct equality")))
 
 ;;; two macros for writing set-operations:
 (defmacro modify-index-for-set
