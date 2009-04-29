@@ -31,11 +31,10 @@
 
 ;; condition
 
-(defn- field? 
+(defn- field-form? 
   "return wether form is a field expr."
   [form]
   (and (seq? form) (= 'clojure.core/unquote (first form))))
-
 
 ;;; sql stuff
 
@@ -85,7 +84,7 @@
                                          #(cons 'list (cons (list 'quote (first %)) (next %)))
                                          e))
         quote-fields (fn [e] (walk-expr cut-on-quote
-                                        field?
+                                        field-form?
                                         #(list 'clojure.core/unquote (-> % second str keyword))
                                         e))]
     (quote-fields (quote-sql-ops expr))))
@@ -103,9 +102,9 @@
   ([expr] `(condition ~expr nil ;;~(gensym "c-")
                       ))
   ([expr condition-name]
-     (let [fields (map #(-> % second str keyword) (collect-exprs field? expr))
+     (let [fields (map #(-> % second str keyword) (collect-exprs field-form? expr))
            tuple-sym (gensym "tuple")
-           fn-expr (replace-exprs field? #(list (-> % second str keyword) tuple-sym) expr)]
+           fn-expr (replace-exprs field-form? #(list (-> % second str keyword) tuple-sym) expr)]
        `(fn ;~(symbol (name condition-name))
           ([]
              ;; Should throw an error if any operator is not in sql-condition-ops.
@@ -120,7 +119,7 @@
               :type :user
               :name '~(or condition-name 
                           ;; provide a default field-name: ????
-                          (keyword (apply str (interpose '- (map name (concat fields (list (gensym))))))))})
+                          (keyword (apply str (interpose '- (map name (concat fields (list (gensym ""))))))))})
           ([~tuple-sym]
              ~fn-expr)))))
 

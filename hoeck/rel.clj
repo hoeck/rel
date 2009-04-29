@@ -27,9 +27,10 @@
 (ns hoeck.rel
   (:require ;[hoeck.rel.sql  :as sql]
             ;[hoeck.rel.sql-utils  :as sql-utils]
-            [hoeck.rel.operators :as rel-op]
+            [hoeck.rel.operators :as op]
             ;[hoeck.rel.iris :as iris]
             hoeck.rel.structmaps
+            [hoeck.rel.conditions :as cd]
             [hoeck.rel.testdata :as td])
   (:use hoeck.library
         hoeck.rel.conditions
@@ -49,20 +50,20 @@
           body)))
 
 (def-lots-of-aliases
-  (rel-op rename xproduct union intersection difference make-relation fields)
+  (op rename xproduct make-relation fields index) ;; union intersection difference
   ;(iris with-empty-universe <- ?-)
   )
 
-(def people (rel-op/make-relation td/people))
+(def people (op/make-relation td/people))
 
 (defn as
   "rename all fields of a relation such that they have a common prefix"
   [R prefix]
-  (rename R (zipmap (fields R) (map #(keyword (str prefix "-" (name %))) (fields R)))))
+  (op/rename R (zipmap (fields R) (map #(keyword (str prefix "-" (name %))) (fields R)))))
 
 (defn select*
   [R condition]
-  (rel-op/select R condition))
+  (op/select R condition))
 
 (defmacro select 
   ;; todo: pattern-like matching, eg: [a ? b] matches (condition (and (= *0 a) (= *2 b)))
@@ -73,38 +74,42 @@
   ;;        -> use all of {[()]} 
   ;;       multiarg-select: keyword value -> hashmap access like `get' where (name :keyword) == field-name
   ;;       => qbe ????
-  "convienience macro around select."
+  "Macro around select."
   [R condition]
-  `(select-fn ~R (rel-core/condition ~condition)))
+  `(select-fn ~R (cd/condition ~condition)))
 
-(def project-fn rel-core/project)
+(def project* op/project) ;; list of keywords or conditions
 
 (defmacro project
   "Convienience macro for the project operation."
   [R & exprs]
-  `(project-fn ~R (list ~@(map #(cond (or (keyword? %) (and (symbol? %) (rel-core/field-name %)))
-                                        `'~(rel-core/field-name %)
-                                      (vector? %)
-                                        `[(rel-core/condition ~(first %)), '~(rel-core/field-name (second %))] 
-                                      :else 
-                                        `(rel-core/condition ~%))
-                               exprs))))
+  `(project* ~R (list ~@(map #(cond (op/field? %)
+                                      %
+                                    (vector? %)
+                                      `(cd/condition ~(first %) ~(second %))
+                                    :else 
+                                       `(cd/condition ~%))
+                             exprs))))
 
 (defn join
   "multiple-relation join"
-  ([R S r s] (rel-core/join R S r s))
-  ([R S r s & more] (if (<= 3 (count more))
-                      (let [[T j t & more] more] 
-                        (apply join (rel-core/join R S r s) T j t more))
+  ([R r S s] (op/join R r S s))
+  ([R r S s & more] (if (<= 2 (count more))
+                      (let [[T t & more] more]
+                        (apply join (op/join R r S s) r T t more))
                       (throw (java.lang.IllegalArgumentException. "wrong number of arguments to join")))))
 
-(defn left-join
-  "simple left-join implementation using (right) join and project."
-  [R S r s]
-  (let [join-S-R (join S R s r)
-        join-fields (concat (fields R) (fields S))]
-    (project-fn join-S-R (map rel-core/make-identity-condition join-fields))))
-    
+(defn make-set-op-fn [set-op]
+  (fn me 
+    ([R] R)
+    ([R S] (set-op R S))
+    ([R S & more]
+       (apply me (set-op R S) more))))
+
+(def union (make-set-op-fn op/union))
+(def intersection (make-set-op-fn op/intersection))
+(def difference (make-set-op-fn op/difference))
+
 (defn group-by
   "Return a hasmap of field-values to sets of tuples
   where they occur in relation R. (aka sql-group by or index)
@@ -123,32 +128,6 @@
      ;;; ????
      ))
 
-(defn tuples->maps
-  "Returns a relation that contains maps instead of vectors as tuples.
-  so #{[1 willy]} will become #{{id 1 name willy}}."
-  [R]
-  (let [fields (rel-core/fields R), index (rel-core/index R)
-        ;;sm (apply create-struct fields)
-        ;;tup->map #(apply struct-map sm (mapcat list fields %))
-        tup->map #(apply hash-map (mapcat list fields %))
-        index-fn (fn index-fn
-                   ([i] (into {} (map (fn [[k v]] [k (set (map tup->map v))]) (index i))))
-                   ([i v] (set (map tup->map  (index v i)))))]
-    (map tup->map R)))
-;    (into #{} (map tup->map R))))
-
-
-;;; -> query by example; Maybe as a default .get method in fproxy-relation
-(defn qbe 
-  "Query by Example, utilizes the relational algebra."
-  [R & args] ;; -> :name 'frieda :id 1
-  (unsupported-operation!))
-;  (cond (vector? (first args))
-;          (query-by-tuple R (first args))
-;        :else
-;          (query-by-hashmap R (apply hash-map args))))
-;; --> query-by-hashmap, query-by-tuple
-
 (defn no-constraints
   "Removes all constraints from relation R."
   [R]
@@ -156,25 +135,11 @@
     (with-meta R (assoc ^R :fields fs))))
 
 ; define right outer join in terms of join union project and xproduct
-(defn right-outer-join [R S r s]
-  (let [j (join R S r s)]
-    (union (xproduct (difference R (project j (fields R)))
-                     (apply make-relation 
-                            (fields S)
-                            (take (-> S fields count) (repeat nil))))
-           j)))
+(defn right-outer-join [R r S s]
+  (union (join R r S s) R))
 
-; define outer join in terms of join union project and xproduct
 (defn outer-join [R S r s]
-  (let [jr (join R S r s)
-        empty-r (apply make-relation (fields R) (take (-> R fields count) (repeat nil)))
-        xr (xproduct (difference R (project-fn jr (fields R))) empty-r)
-
-        js (left-join R S r s)
-        empty-s (apply make-relation (fields S) (take (-> S fields count) (repeat nil)))
-        xs (xproduct empty-s (difference S (project-fn js (fields S))))]
-    (union (union jr xr)
-           (union js xs))))
+  (union (join R r S s) (join S s R r) R S))
 
 (defn order-by 
   "order tuples by field, use ascending (:asc) or descending (:desc) order."
