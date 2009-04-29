@@ -66,6 +66,9 @@
 (defmulti make-relation type-dispatch)
 (defmulti make-index type-dispatch)
 
+;; misc functions
+(defn fields [R] (:fields ^R))
+(defn index [R] (:index ^R))
 
 
 
