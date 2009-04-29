@@ -54,12 +54,20 @@
   ;(iris with-empty-universe <- ?-)
   )
 
+;; test
+
 (def people (op/make-relation td/people))
+
+
+;; rename
 
 (defn as
   "rename all fields of a relation such that they have a common prefix"
   [R prefix]
   (op/rename R (zipmap (fields R) (map #(keyword (str prefix "-" (name %))) (fields R)))))
+
+
+;; select
 
 (defn select*
   [R condition]
@@ -78,6 +86,9 @@
   [R condition]
   `(select-fn ~R (cd/condition ~condition)))
 
+
+;; project
+
 (def project* op/project) ;; list of keywords or conditions
 
 (defmacro project
@@ -91,15 +102,12 @@
                                        `(cd/condition ~%))
                              exprs))))
 
-(defn join
-  "multiple-relation join"
-  ([R r S s] (op/join R r S s))
-  ([R r S s & more] (if (<= 2 (count more))
-                      (let [[T t & more] more]
-                        (apply join (op/join R r S s) r T t more))
-                      (throw (java.lang.IllegalArgumentException. "wrong number of arguments to join")))))
+;; union, difference, intersection
 
-(defn make-set-op-fn [set-op]
+(defn make-set-op-fn
+  "Return a function which extends the given 2-argument set function
+  to take more than 2 relations."
+  [set-op]
   (fn me 
     ([R] R)
     ([R S] (set-op R S))
@@ -110,71 +118,82 @@
 (def intersection (make-set-op-fn op/intersection))
 (def difference (make-set-op-fn op/difference))
 
-(defn group-by
-  "Return a hasmap of field-values to sets of tuples
-  where they occur in relation R. (aka sql-group by or index)
-  sets/ and tuples may be removed if not necessary (one-element set/tuple)."
-  ([R field]
-     (let [fpos (pos (rel-core/fields R) field)
-           dtup #(let [v (if (map? %1)
-                           (dissoc %1 field)
-                           (rel-core/dissoc-vec %1 fpos))]
-                   (if (= (count v) 1) (v 0) v))]
-       (into {} (map (fn [[k v]] [k (let [v (map dtup v)]
-                                      (if (next v) v (first v)))])
-                     ((rel-core/index R) fpos)))))
-  ([R field & more-fields]
-     (unsupported-operation!)
-     ;;; ????
-     ))
 
-(defn no-constraints
-  "Removes all constraints from relation R."
-  [R]
-  (let [fs (vec (map #(with-meta % (dissoc (meta %) :primary-key)) (fields R)))]
-    (with-meta R (assoc ^R :fields fs))))
+;; joins
 
-; define right outer join in terms of join union project and xproduct
-(defn right-outer-join [R r S s]
-  (union (join R r S s) R))
+(defn make-join-op-fn [join-op]
+  "return a function which implements the given join-op for more than two relation-field pairs."
+  (fn multiarg-join    
+    ([R r S s]
+       (join-op R r S s))
+    ([R r S s & more]
+       (if (= 1 (count more)) (throw (java.lang.IllegalArgumentException. "wrong number of arguments to join")))
+       (apply multiarg-join (join-op R r S s) r more))))
 
-(defn outer-join [R S r s]
-  (union (join R r S s) (join S s R r) R S))
+(def join (make-join-op-fn op/join))
+(def right-outer-join (make-join-op-fn (fn [R r S s] (union (op/join R r S s) R))))
+(def outer-join (make-join-op-fn (fn [R S r s] (union (join R r S s) (join S s R r) R S))))
 
-(defn order-by 
-  "order tuples by field, use ascending (:asc) or descending (:desc) order."
-  ([R field] (order-by R field :asc))
-  ([R field asc-or-desc]
-     (rel-core/fproxy-relation ^R
-                               {'seq (let [a (rel-core/field-accessor R field)]
-                                       (if (= asc-or-desc :asc)
-                                         (fn [_] (sort-by a R))
-                                         (fn [_] (sort-by a #(* -1 (.compareTo %1 %2)) R))))
-                                'get (fn [_ tup] (.get R tup))
-                                'count (fn [_ count] (.count R))
-                                'contains rel-core/default-contains-fn})))
+;(defn order-by 
+;  "order tuples by field, use ascending (:asc) or descending (:desc) order."
+;  ([R field] (order-by R field :asc))
+;  ([R field asc-or-desc]
+;     (rel-core/fproxy-relation ^R
+;                               {'seq (let [a (rel-core/field-accessor R field)]
+;                                       (if (= asc-or-desc :asc)
+;                                         (fn [_] (sort-by a R))
+;                                         (fn [_] (sort-by a #(* -1 (.compareTo %1 %2)) R))))
+;                                'get (fn [_ tup] (.get R tup))
+;                                'count (fn [_ count] (.count R))
+;                                'contains rel-core/default-contains-fn})))
+
+;(defn group-by
+;  "Return a hasmap of field-values to sets of tuples
+;  where they occur in relation R. (aka sql-group by or index)
+;  sets/ and tuples may be removed if not necessary (one-element set/tuple)."
+;  ([R field]
+;     (let [fpos (pos (rel-core/fields R) field)
+;           dtup #(let [v (if (map? %1)
+;                           (dissoc %1 field)
+;                           (rel-core/dissoc-vec %1 fpos))]
+;                   (if (= (count v) 1) (v 0) v))]
+;       (into {} (map (fn [[k v]] [k (let [v (map dtup v)]
+;                                      (if (next v) v (first v)))])
+;                     ((rel-core/index R) fpos)))))
+;  ([R field & more-fields]
+;     (unsupported-operation!)
+;     ;;; ????
+;     ))
+
+;(defn no-constraints
+;  "Removes all constraints from relation R."
+;  [R]
+;  (let [fs (vec (map #(with-meta % (dissoc (meta %) :primary-key)) (fields R)))]
+;    (with-meta R (assoc ^R :fields fs))))
+
 
 ;; pretty printing
-(defn determine-column-sizes
+
+(defn- determine-column-sizes
   "Given a relation R, return a list of column-sizes according to opts."
   [R opts]
-  (let [max-col-widths (map #(pipe (project-fn R (list %))
+  (let [max-col-widths (map #(pipe (project* R (list %))
                                    (map pr-str)
                                    (map count)
-                                   (map (partial + -2))
+                                   (map (partial + -1))
                                    (reduce max))
-                            (fields R))       
+                            (fields R))
         pretty-col-widths (pipe max-col-widths
-                                (map (partial min (:max-colsize opts)))
-                                (map (partial max (:min-colsize opts))))
-        small-fields-count (count (filter (partial <= (:min-colsize opts)) pretty-col-widths))
+                                (map (partial min (:max-colsize opts 70)))
+                                (map (partial max (:min-colsize opts 0))))
+        small-fields-count (count (filter (partial <= (:min-colsize opts 0)) pretty-col-widths))
         amount (if (< small-fields-count 0)
-                 (/ (- (reduce + pretty-col-widths) (:max-linesize opts))
+                 (/ (- (reduce + pretty-col-widths) (:max-linesize opts 80))
                     small-fields-count)
                  0)]
-    (if (< 0 amount)
-      (map #(max (:min-colsize opts) (- % amount)) pretty-col-widths)
-      pretty-col-widths)))
+    (zipmap (fields R) (if (< 0 amount)
+                         (map #(max (:min-colsize opts) (- % amount)) pretty-col-widths)
+                         pretty-col-widths))))
 
 (def *pretty-print-relation-opts* {:max-lines 30, :max-colsize 30, :max-linesize 70 :min-colsize 1})
 
@@ -185,17 +204,28 @@
   [R & opts]
   (cond (= (count (fields R)) 1)
           (print (set R))
-        :else
+        :else        
           (let [opts (as-keyargs opts (assoc *pretty-print-relation-opts* :writer *out*))
                 sizes (determine-column-sizes R opts)
-                pr-tupl (fn [t] (str "[" (apply str (interpose " " (map #(str-cut (str-align (pr-str %1) %2 (if (or (string? %1) (symbol? %1) (keyword? %1)) :left :right))
-                                                                                  %2) t sizes))) "]"))]
-            (binding [*out*(:writer opts)]
+                pr-field (fn [tuple field-name comma]
+                           (let [v (get tuple field-name)
+                                 s (sizes field-name)]
+                             (str (str-cut (str field-name " "
+                                                (str-align (str (pr-str v) (if comma "," ""))
+                                                           (- s (count (str field-name)) (if comma 1 2))
+                                                           (if (or (string? v) (symbol? v) (keyword? v)) :left :right))
+                                                )
+                                           s)
+                                  (if comma " " ""))))
+                pr-tuple (fn [tuple] (str "{" (apply str (map (partial pr-field tuple)
+                                                              (fields R)
+                                                              (concat (drop 1 (fields R)) '(false)))) "}"))]
+            (binding [*out* (:writer opts)]
               (print"#{")
-              (print (pr-tupl (first R)))
+              (print (pr-tuple (first R)))
               (doseq [r (next R)]
                 (println)
-                (print (str "  " (pr-tupl r))))
+                (print (str "  " (pr-tuple r))))
               (println "}")))))
   
 ;; establish default pretty-printing of relations, needs awareness for *print-** variables
@@ -203,15 +233,16 @@
   [R, w]
   (pretty-print-relation R :writer w))
 
+
 ;; sql stuff needs hoeck.rel
-(require '[hoeck.rel.sql-utils :as sql-utils])
-(require '[hoeck.rel.sql :as sql])
+;(require '[hoeck.rel.sql-utils :as sql-utils])
+;(require '[hoeck.rel.sql :as sql])
 
-(def-lots-of-aliases 
-  (sql-utils default-derby-args default-sybase-args))
+;(def-lots-of-aliases 
+;  (sql-utils default-derby-args default-sybase-args))
 
-(defaliases
-  sql-connection sql-utils/make-connection-fn)
+;(defaliases
+;  sql-connection sql-utils/make-connection-fn)
 
 
 
