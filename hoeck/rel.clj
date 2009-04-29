@@ -27,12 +27,13 @@
 (ns hoeck.rel
   (:require ;[hoeck.rel.sql  :as sql]
             ;[hoeck.rel.sql-utils  :as sql-utils]
-            [hoeck.rel.core :as rel-core]
-            [hoeck.rel.iris :as iris]
-            [hoeck.rel.fn])
+            [hoeck.rel.operators :as rel-op]
+            ;[hoeck.rel.iris :as iris]
+            hoeck.rel.structmaps
+            [hoeck.rel.testdata :as td])
   (:use hoeck.library
-        clojure.contrib.def
-        clojure.contrib.fcase))
+        hoeck.rel.conditions
+        clojure.contrib.def))
 
 (defmacro defaliases [& name-orig-pairs]
   `(do ~@(map #(list `defalias (first %) (second %)) (partition 2 name-orig-pairs))))
@@ -48,19 +49,20 @@
           body)))
 
 (def-lots-of-aliases
-  (rel-core rename xproduct union intersection difference make-relation fields constraints)
-  (iris with-empty-universe <- ?-))
+  (rel-op rename xproduct union intersection difference make-relation fields)
+  ;(iris with-empty-universe <- ?-)
+  )
 
-;; form the relation interface & some helpers
+(def people (rel-op/make-relation td/people))
+
 (defn as
   "rename all fields of a relation such that they have a common prefix"
   [R prefix]
-  (rel-core/rename R (mapcat #(list % (symbol (str prefix "-" %))) (rel-core/fields R))))
+  (rename R (zipmap (fields R) (map #(keyword (str prefix "-" (name %))) (fields R)))))
 
-(defn select-fn
+(defn select*
   [R condition]
-  (rel-core/check-fields! R (:fields (condition)))
-  (rel-core/select R condition))
+  (rel-op/select R condition))
 
 (defmacro select 
   ;; todo: pattern-like matching, eg: [a ? b] matches (condition (and (= *0 a) (= *2 b)))

@@ -53,11 +53,6 @@
            (next keys)))
         ret)))
 
-(def empty-relation)
-
-(defn fields [R] (:fields ^R))
-(defn index [R] (:index ^R))
-
 (defn- set-index
   "Returns a map of the distinct values of k in the xrel mapped to a
   set of the maps in xrel with the corresponding values of k."
@@ -366,7 +361,6 @@
   (fn [_] (distinct (lazy-cat (filter S R) (filter R S)))) ;; seq
   (fn [_ k] (and (S k) (R k)))) ;; get
 
-
 (deftest set-operator-test
   (let [R (make-relation #{{:a 1 :b 1} {:a 2 :b 1}})
         S (make-relation #{{:a 3 :b 1}})
@@ -392,6 +386,7 @@
     (is (= d (set (filter (complement T) R))) "difference")
     (is (= (difference R E) R) "difference empty")
     (is (= (clean-index (index d)) (make-index d '(:a :b))) "difference index")
+
     ;; intersection
     (is (= i T) "intersection")
     (is (= (intersection R E) E) "empty intersection")
