@@ -108,7 +108,7 @@
 
 (defn- -empty
   [this]
-  (hoeck.magic_map.MagicMap. (-> this .theMap .empty)))
+  (or (empty (prop-map)) {}))
 
 ; IFn
 (defn- -invoke
