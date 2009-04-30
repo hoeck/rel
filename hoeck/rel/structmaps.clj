@@ -405,3 +405,12 @@
     (is (= (intersection (intersection R S) T) E) "intersection nesting")
     (is (= (clean-index (index i)) (make-index i (fields i))))))
 
+
+(defmethod order-by :clojure
+  [R field <-or->]
+  (Relation. ^R ;; order the index sets??
+             {'seq (fn [_] (if (= <-or-> '<) 
+                             (sort-by field R)
+                             (sort-by field #(* -1 (.compareTo %1 %2)) R)))
+              'get (fn [_ k] (R k))
+              'count (fn [_] (count R))}))
