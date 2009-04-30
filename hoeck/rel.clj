@@ -33,6 +33,7 @@
             [hoeck.rel.conditions :as cd]
             [hoeck.rel.testdata :as td])
   (:use hoeck.library
+        hoeck.magic-map
         hoeck.rel.conditions
         clojure.contrib.def))
 
@@ -147,23 +148,14 @@
 ;                                'count (fn [_ count] (.count R))
 ;                                'contains rel-core/default-contains-fn})))
 
-;(defn group-by
-;  "Return a hasmap of field-values to sets of tuples
-;  where they occur in relation R. (aka sql-group by or index)
-;  sets/ and tuples may be removed if not necessary (one-element set/tuple)."
-;  ([R field]
-;     (let [fpos (pos (rel-core/fields R) field)
-;           dtup #(let [v (if (map? %1)
-;                           (dissoc %1 field)
-;                           (rel-core/dissoc-vec %1 fpos))]
-;                   (if (= (count v) 1) (v 0) v))]
-;       (into {} (map (fn [[k v]] [k (let [v (map dtup v)]
-;                                      (if (next v) v (first v)))])
-;                     ((rel-core/index R) fpos)))))
-;  ([R field & more-fields]
-;     (unsupported-operation!)
-;     ;;; ????
-;     ))
+(defn group-by
+  "Return a hasmap of field-values to sets of tuples
+  where they occur in relation R. (aka sql-group by or index)."  
+  ([R & group-fields]
+     (let [i (index R)]
+       (magic-map (fn ([] ;(map  (keys (i (first g))))
+                         )
+                    ([tuple] (apply clojure.set/union (map #((% i) (tuple %)) group-fields))))))))
 
 ;(defn no-constraints
 ;  "Removes all constraints from relation R."

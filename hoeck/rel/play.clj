@@ -85,55 +85,59 @@ B -> #{{:vorname diana, :name kirsch} {:vorname robert, :name schmock}}
 
 (in-ns 'hoeck.rel)
 
-(get-in (op/index (project people [(= ~id 1) :id-one] :name :id)) [:id-one, false])
-
-(join people :adress-id (op/make-relation td/address) :id)
-
-(empty (index (join (op/make-relation td/address) :id people :adress-id)))
-
-(empty nil)
-
-(empty (index (op/make-relation td/address)))
-
-(= (index (project* people (fields people))) (index people))
-
-(union (union people people) people)
-
-
-(doc def)
--------------------------
-def
-Special Form
-  Please see http://clojure.org/special_forms#def
-nil
-
-
-
-
-
-
-
-
-
-
-
-
 (clojure.contrib.test-is/run-tests 'hoeck.rel.structmaps)
 
+(determine-column-sizes (project* people (fields people)) *pretty-print-relation-opts*)
+{:adress-id 14, :vorname 16, :name 18, :id 5}
 
-Testing hoeck.rel.structmaps
-
-Ran 8 tests containing 42 assertions.
-0 failures, 0 errors.
-(doc distinct)
--------------------------
-clojure.core/distinct
-([coll])
-  Returns a lazy sequence of the elements of coll with duplicates removed
+(def ttt (make-relation
+#{{:a 1 :b 2}
+  {:a 1 :b 1}
+  {:a 2 :b 2}}))
 
 
-+(let [xxx (op/xproduct (as people 'a) (as people 'b))]
-  (get-in (index xxx) [:a-vorname 'robert]))
+{:a {2 #{{:a 2, :b 2}}, 1 #{{:a 1, :b 1} {:a 1, :b 2}}}, :b {2 #{{:a 1, :b 2} {:a 2, :b 2}}, 1 #{{:a 1, :b 1}}}}
 
-(index (make-relation #{{:a 1 :b 1} {:a 1 :b 2} {:b 2}} :fields '(:a :b)))
+
+(get-in (:a (index ttt)) [2])
+#{{:a 2, :b 2}}
+#{{:a 2, :b 2}}
+
+(group-by ttt :b)
+{2 #{{:a 1, :b 2} {:a 2, :b 2}}, 1 #{{:a 1, :b 1}}}
+{2 {2 #{{:a 2, :b 2}}}, 1 {1 #{{:a 1, :b 1}, 2 {:a 1, :b 2}}}}
+
+
+(keys (group-by ttt :a :b))
+
+(distinct (map :b (apply concat (vals (:a (index ttt))))))
+(2 1)
+
+({:a 2, :b 2} {:a 1, :b 1} {:a 1, :b 2})
+{2 #{{:a 2, :b 2}}, 1 #{{:a 1, :b 1} {:a 1, :b 2}}}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+(pop (seq '(A v d)))
 
