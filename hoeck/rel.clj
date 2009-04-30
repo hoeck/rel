@@ -31,7 +31,9 @@
             ;[hoeck.rel.iris :as iris]
             hoeck.rel.structmaps
             [hoeck.rel.conditions :as cd]
-            [hoeck.rel.testdata :as td])
+            [hoeck.rel.testdata :as td]
+            hoeck.magic-map.MagicMap
+            hoeck.value-mapped-map.ValueMappedMap)
   (:use hoeck.library
         hoeck.magic-map
         hoeck.rel.conditions
@@ -135,33 +137,17 @@
 (def right-outer-join (make-join-op-fn (fn [R r S s] (union (op/join R r S s) R))))
 (def outer-join (make-join-op-fn (fn [R S r s] (union (join R r S s) (join S s R r) R S))))
 
-;(defn order-by 
-;  "order tuples by field, use ascending (:asc) or descending (:desc) order."
-;  ([R field] (order-by R field :asc))
-;  ([R field asc-or-desc]
-;     (rel-core/fproxy-relation ^R
-;                               {'seq (let [a (rel-core/field-accessor R field)]
-;                                       (if (= asc-or-desc :asc)
-;                                         (fn [_] (sort-by a R))
-;                                         (fn [_] (sort-by a #(* -1 (.compareTo %1 %2)) R))))
-;                                'get (fn [_ tup] (.get R tup))
-;                                'count (fn [_ count] (.count R))
-;                                'contains rel-core/default-contains-fn})))
-
 (defn group-by
   "Return a hasmap of field-values to sets of tuples
-  where they occur in relation R. (aka sql-group by or index)."  
-  ([R & group-fields]
-     (let [i (index R)]
-       (magic-map (fn ([] ;(map  (keys (i (first g))))
-                         )
-                    ([tuple] (apply clojure.set/union (map #((% i) (tuple %)) group-fields))))))))
-
-;(defn no-constraints
-;  "Removes all constraints from relation R."
-;  [R]
-;  (let [fs (vec (map #(with-meta % (dissoc (meta %) :primary-key)) (fields R)))]
-;    (with-meta R (assoc ^R :fields fs))))
+  where they occur in relation R. (aka sql-group by or index)."
+  ([R field & more-fields]
+     (let [gi (fn group-index [index-set fields]
+                (if-let [field (first fields)]
+                  (magic-map (fn ([] (map field index-set))
+                                 ([k] (group-index (clojure.set/intersection index-set (((index R) field) k)) (next fields)))))
+                  index-set))]
+         (magic-map (fn ([] (keys ((index R) field)))
+                        ([k] (gi (((index R) field) k) more-fields)))))))
 
 
 ;; pretty printing
