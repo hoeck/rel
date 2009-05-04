@@ -55,7 +55,7 @@
   (with-meta #{} (assoc (.meta this) :index {})))
 
 (def default-impl {'contains default-contains-fn
-                     'empty default-empty-fn})
+                   'empty default-empty-fn})
 
 (defn -init [metadata fn-map]
   [[metadata {}] (merge default-impl fn-map)])

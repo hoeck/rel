@@ -29,7 +29,7 @@
             ;[hoeck.rel.sql-utils  :as sql-utils]
             [hoeck.rel.operators :as op]
             ;[hoeck.rel.iris :as iris]
-            hoeck.rel.structmaps
+            [hoeck.rel.structmaps :as st]
             [hoeck.rel.conditions :as cd]
             [hoeck.rel.testdata :as td]
             hoeck.magic-map.MagicMap
@@ -87,7 +87,7 @@
   ;;       => qbe ????
   "Macro around select."
   [R condition]
-  `(select-fn ~R (cd/condition ~condition)))
+  `(select* ~R (cd/condition ~condition)))
 
 
 ;; project
@@ -221,6 +221,79 @@
 
 ;(defaliases
 ;  sql-connection sql-utils/make-connection-fn)
+
+
+(comment
+
+;; example relations: namespace, symbols
+
+(def namespaces (make-relation 
+                 (map #(list (ns-name %) %) (all-ns))
+                 :fields [:name :namespace]))
+
+(defn- ns-relation [ns-func field-name]
+  (let [fields (list :ns-name :name field-name)]
+    (make-relation (mapcat (fn [tup] (map #(zipmap fields (cons (:name tup) %)) 
+                                          (ns-func (:namespace tup))))
+                           namespaces)
+                   :fields fields)))
+
+(def namespace-aliases (ns-relation ns-aliases :alias))
+(def namespace-imports (ns-relation ns-imports :import))
+(def namespace-refers (ns-relation ns-refers :varname))
+(def namespace-interns (ns-relation ns-interns :varname))
+(def namespace-publics (ns-relation ns-publics :varname))
+
+(= (select (difference namespace-interns namespace-publics) (= ~ns-name 'hoeck.rel.structmaps))
+   (get-in (index (difference namespace-interns namespace-publics)) [:ns-name 'hoeck.rel.structmaps]))
+
+;; example relations: files
+
+(defn file-relation [path]
+  (make-relation (map (fn [f] {:name (.getName f)
+                               :path (.getParent f)
+                               :size (.length f)})
+                      (filter #(not (.isDirectory %)) (file-seq (java.io.File. path))))
+                 :fields [:name :path :size]))
+
+(op/order-by
+ (project (file-relation "/home/timmy-turner/clojure/ra/hoeck")
+          [(/ ~size 1000.0) :size-in-kb] :name :path)
+ :size-in-kb
+ '<)
+
+(def classes (make-relation #{}))
+(def methods )
+(def constructors )
+(def fields )
+
+(defn class-tuple [c]
+  {:name (symbol (.getName c))
+   :type (cond (.isInterface c) :interface
+               (.isEnum c) :enum
+               (.isArray c) :array
+               (.isAnonymousClass c) :anonymous
+               (.isLocalClass c) :local
+               (.isMemberClass c) :member
+               (.isPrimitive c) :primitive
+               (.isSynthetic c) :synthetic
+               :else :class)
+   :super (if-let [n (.getSuperclass c)]
+            (symbol (.getName n)))})
+
+(defn- add-class [c]
+  (let [new-class (class-tuple c)
+        sup (map class-tuple (supers c))]
+    (union classes (make-relation (set (conj sup new-class))))))
+(class-tuple (type {}))
+{:import java.lang.ProcessBuilder, :name ProcessBuilder, :ns-name swank.core.threadmap}
+
+(count (select people (= ~id 99)))
+
+(binding [classes (make-relation (set (list (class-tuple java.lang.Object))))] 
+  (add-class (type {})))
+
+)
 
 
 

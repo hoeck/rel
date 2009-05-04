@@ -32,7 +32,6 @@
             [hoeck.rel.testdata :as testdata])
   (:use (hoeck library magic-map value-mapped-map)
         (hoeck.rel operators conditions)
-        [hoeck.rel.testdata :only [with-testdata]]
         de.kotka.lazymap
         ;; cl-format, pprint
         clojure.contrib.test-is)
@@ -53,76 +52,14 @@
            (next keys)))
         ret)))
 
-(defn- set-index
-  "Returns a map of the distinct values of k in the xrel mapped to a
-  set of the maps in xrel with the corresponding values of k."
-  [xrel k]
-    (reduce
-     (fn [m x]
-       (let [ik (x k)]
-         (assoc m ik (conj (get m ik #{}) x))))
-     {} xrel))
+
+;; index tools
 
 (defn- index-lookup
   "look up multiple fields using a map of single field-indexes"
   ([index-map tuple]
      (empty?->nil
       (apply clojure.set/intersection (map (fn [[k v]] ((index-map k) v)) tuple)))))
-
-(defmethod make-index clojure.lang.IPersistentSet [R fields & opts]
-  ;; lazy index
-  (let [index-map (apply lazy-hash-map* (mapcat #(list %  (delay (set-index R %))) fields))]
-    index-map))
-
-(defn- clean-index
-  "remove obviously empty index entries like: {:field {name #{} ..}}.
-  Used to test lazy relation indices."
-  [relation-index]
-  (magic-map (fn ([] (keys relation-index))
-                 ([k] (let [index (get relation-index k)]
-                        (magic-map (fn ([] (map key (filter #(not (empty? (val %))) index)))
-                                       ([k] (let [v (get index k)]
-                                              (if (not (empty? v)) v))))))))))
-
-(deftest clean-index-test
-  (let [i (make-index testdata/people (-> testdata/people first keys))]
-    (is (= (clean-index i) i)) "clean index"))
-
-(defmethod make-relation clojure.lang.IPersistentSet
-  [S & opts]
-  (let [o (apply hash-map opts)
-        f (or (o :fields) (keys (first S)))]
-    (with-meta S (merge ^S {:relation-tag :clojure
-                            :fields f
-                            :index (make-index S f)}))))
-
-(deftest make-relation-test
-  (with-testdata
-    (is (= (set (fields R)) testdata/fields-R))
-    (is (= (set (fields S)) testdata/fields-S))
-    (is (= R testdata/people))
-    (is (= (index R) testdata/index-R))
-    (is (= S testdata/address))
-    (is (= (index S) testdata/index-S))))
-
-(defn read-expressions
-  "Read a list of symbols or conditions and 
-  convert all symbols to identity-conditions returning
-  a list of conditions."
-  [exprs]
-  (map #(if (field? %)
-          (make-identity-condition %)
-          %)
-       exprs))
-
-(def example-project-expression
-     (read-expressions
-      (list (condition (str ~name ", " ~vorname) :full-name)
-            :id)))
-
-;; split that into
-;;   a `pure' (identity) projection function
-;;   a `map' projection function, which adds new, unindexed values to a relation
 
 (defn map-index [index-fn, index]
   ;;{:field {value #{ tuples }}}
@@ -145,6 +82,98 @@
   ;;    |      `- empty-set ^= filtered
   ;;    `- identity
   (map-index (fn [tuples] (set (filter tuple-pred tuples))) index))
+
+(defn- set-index
+  "Returns a map of the distinct values of k in the xrel mapped to a
+  set of the maps in xrel with the corresponding values of k."
+  [xrel k]
+    (reduce
+     (fn [m x]
+       (let [ik (x k)]
+         (assoc m ik (conj (get m ik #{}) x))))
+     {} xrel))
+
+;; ctors
+
+(defmethod make-index clojure.lang.IPersistentSet [R fields & opts]
+  ;; lazy index
+  (let [index-map (apply lazy-hash-map* (mapcat #(list %  (delay (set-index R %))) fields))]
+    index-map))
+
+(defmethod make-relation clojure.lang.IPersistentSet
+  [S & opts]
+  (let [o (apply hash-map opts)
+        f (or (o :fields) (keys (first S)))]
+    (with-meta S (merge ^S {:relation-tag :clojure
+                            :fields f
+                            :index (make-index S f)}))))
+
+(deftest make-relation-test
+  (let [R (make-relation testdata/people)
+        S (make-relation testdata/address)]
+    (is (= (set (fields R)) testdata/fields-R))
+    (is (= (set (fields S)) testdata/fields-S))
+    (is (= R testdata/people))
+    (is (= (index R) testdata/index-R))
+    (is (= S testdata/address))
+    (is (= (index S) testdata/index-S))))
+
+(defmethod make-relation clojure.lang.Seqable
+  [S & opts]
+  (let [o (apply hash-map opts)
+        fields (:fields o)
+        S-seq (cond (map? (first S)) S;; seq of hashmaps as tuples
+                     :else (map #(zipmap fields %) S));; seq of seqs
+        S-set (delay (set S-seq))
+        R (Relation. {:fields fields
+                      :relation-tag :clojure}
+                     {'seq (fn [_] S-seq)
+                      'count (fn [_] (count S))
+                      'get (fn [_ k] ((force S-set) k))})]
+    (vary-meta R assoc :index (make-index R fields))))
+
+;; test tools
+
+(defn- clean-index
+  "remove obviously empty index entries like: {:field {name #{} ..}}.
+  Used to test lazy relation indices."
+  [relation-index]
+  (magic-map (fn ([] (keys relation-index))
+                 ([k] (let [index (get relation-index k)]
+                        (magic-map (fn ([] (map key (filter #(not (empty? (val %))) index)))
+                                       ([k] (let [v (get index k)]
+                                              (if (not (empty? v)) v))))))))))
+
+(deftest clean-index-test
+  (let [i (make-index testdata/people (-> testdata/people first keys))]
+    (is (= (clean-index i) i)) "clean index"))
+
+(defmacro with-testdata [& body]
+  `(let [~'R (make-relation testdata/people)
+         ~'S (make-relation testdata/address)]
+     ~@body))
+
+
+;; projection
+
+(defn read-expressions
+  "Read a list of symbols or conditions and 
+  convert all symbols to identity-conditions returning
+  a list of conditions."
+  [exprs]
+  (map #(if (field? %)
+          (make-identity-condition %)
+          %)
+       exprs))
+
+(def example-project-expression
+     (read-expressions
+      (list (condition (str ~name ", " ~vorname) :full-name)
+            :id)))
+
+;; split that into
+;;   a `pure' (identity) projection function
+;;   a `map' projection function, which adds new, unindexed values to a relation
 
 (defn project-identity 
   "From all tuples of Relation R, remove all tuple-keys not in field-names."

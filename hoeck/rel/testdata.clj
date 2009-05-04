@@ -32,8 +32,4 @@
        :street {bighaynstr #{{:id 103, :city dresden, :street bighaynstr}}, fickpieschener-allee #{{:id 100, :city dresden, :street fickpieschener-allee}}, plattenbauweg #{{:id 101, :city dresden, :street plattenbauweg} {:id 102, :city rostock, :street plattenbauweg}}}
        :id {102 #{{:id 102, :city rostock, :street plattenbauweg}}, 103 #{{:id 103, :city dresden, :street bighaynstr}}, 100 #{{:id 100, :city dresden, :street fickpieschener-allee}}, 101 #{{:id 101, :city dresden, :street plattenbauweg}}}})
 
-(defmacro with-testdata [& body]
-  `(let [~'R (make-relation people)
-         ~'S (make-relation address)]
-     ~@body))
 
