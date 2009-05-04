@@ -87,7 +87,8 @@
   [this k]
   (or (and (find (state :new-map) k))
       (and (contains? (state :map) k)
-           (LazyMapEntry. k (delay ((state :fn) ((state :map) k)))))))
+           (LazyMapEntry. k (delay ((state :fn) ((state :map) k)))))
+      nil))
 
 (defn- -valAt
   ([this k]
@@ -96,7 +97,8 @@
      (or (and (contains? (state :new-map) k)
               ((state :new-map) k))
          (and (contains? (state :map) k)
-              ((state :fn) ((state :map) k))))))
+              ((state :fn) ((state :map) k)))
+         nil)))
 
 ; Iterable
 (defn- -iterator
