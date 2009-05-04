@@ -27,7 +27,6 @@
 (ns hoeck.rel.Relation
   (:gen-class :name hoeck.rel.Relation 
               :extends clojure.lang.APersistentSet
-              ;:implements [clojure.lang.IPersistentSet clojure.lang.IObj]
               :constructors {[clojure.lang.IPersistentMap clojure.lang.IPersistentMap] [clojure.lang.IPersistentMap clojure.lang.IPersistentMap]}
               :factory createRelation
               :state "state"
@@ -52,7 +51,11 @@
   [this key]
   (if (.get this key) true false))
 
-(def default-impl {'contains default-contains-fn})
+(defn default-empty-fn [this]
+  (with-meta #{} (assoc (.meta this) :index {})))
+
+(def default-impl {'contains default-contains-fn
+                   'empty default-empty-fn})
 
 (defn -init [metadata fn-map]
   [[metadata {}] (merge default-impl fn-map)])
@@ -60,17 +63,20 @@
 (defn -withMeta [this m]
   (hoeck.rel.Relation. m (.state this)))
 
-(def-method count) 
+(def-method count)
 (def-method get 1)
 (def-method seq)
 (def-method contains 1)
+(def-method empty)
 
 ;;;
 ;(require 'hoeck.rel.Relation)
+;(binding [*compile-path* "/home/timmy-turner/clojure/classes"] (compile 'hoeck.rel.Relation))
 ;(binding [*compile-path* "g:\\clojure\\classes"] (compile 'hoeck.rel.Relation))
 ;(def xxx (hoeck.rel.Relation. {} {}))
-;(def xxx (hoeck.rel.Relation. {} {'count (fn [_] 3) 'seq (fn [_] '(a b c d e f g))}))
+;(def xxx (hoeck.rel.Relation. {} {'count (fn [_] 3) 'seq (fn [_] (map #(do (println %) %) '(a b c d e f g)))}))
 ;(def yyy (with-meta xxx {:meta 'data}))
+
 
 ;(doc gen-class)
 ; -------------------------

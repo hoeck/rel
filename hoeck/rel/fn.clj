@@ -33,7 +33,7 @@
 
 ;;; projection:
 
-(defn generate-signature
+(defn #^{:meta 'data} generate-signature
   "Generate a vector mapping old to new positions in a projected tuple."
   [old-names, new-names]
   (vec (map #(pos old-names %) new-names)))

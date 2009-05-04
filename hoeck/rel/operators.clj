@@ -27,8 +27,19 @@
 (ns hoeck.rel.operators)
 
 ;; relational algebra operations
+
+(defn type-dispatch [thing & opts]
+  (type thing))
+
 (defn op-dispatch-fn [relation & rest]
   (:relation-tag ^relation))
+
+(defn join-dispatch [R r, S s]
+  (let [tag-r (:relation-tag ^R)
+        tag-s (:relation-tag ^S)]
+    (or (or (nil? tag-r) (nil? tag-s))
+        (and (= tag-r tag-s) tag-r)
+        :clojure)))
 
 (defn two-op-dispatch-fn [R, S & rest]
   (let [tag-r (:relation-tag ^R)
@@ -41,106 +52,24 @@
 (defmulti select op-dispatch-fn)
 (defmulti rename op-dispatch-fn)
 (defmulti xproduct two-op-dispatch-fn)
-(defmulti join two-op-dispatch-fn) ;; right inner join
+
+(defmulti join join-dispatch) ;; natural-join
+(defmulti outer-join join-dispatch) ;; right-outer-join
+(defmulti full-outer-join join-dispatch)
+
 (defmulti union two-op-dispatch-fn)
 (defmulti difference two-op-dispatch-fn)
 (defmulti intersection two-op-dispatch-fn)
 (defmulti order-by op-dispatch-fn)
 
-;; default dispatch
-(defmacro def-default-method
-  "Expands to a defmethod form which defines the default dispatch method (on true) for 
-  the given rel-algebra method name taking R-arg-count num args."
-  [name R-arg-count]
-  (let [rel-args (repeatedly gensym)]
-    `(defmethod ~name true [~@(take R-arg-count rel-args) & args#]
-       (apply ~'project ~@(map (fn [argname] `(make-relation ~argname)) (take R-arg-count rel-args)) args#))))
+;; constructor methods
+(defmulti make-relation type-dispatch)
+(defmulti make-index type-dispatch)
 
-(comment
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;"primary keys" in relations:
-; internal: "primary index"
-; how to calculate the union with other sets?
-#{[a 1] [b 2]} U #{[b 3]} -> #{[a 1] [b 2] [b 3]}
-; but with #0 as primary-key
-#{[a 1] [b 2]} U #{[b 3]} -> either #{[a 1] [b 2]} or #{[a 1] [b 3]} ??  ;-> merge ?
-
-; consequence of pkey: 
-[b 1] == [b 2] == [b ?x]
-; whereas without
-[b 1] != [b 2] != [b ?X]
-; NO!
-
-; affects: all ops except select
-;project: remove the pkey tag if pkey field is not projected
-;rename: rename field attr map too
-;xproduct, join:  add new pkey if S has pkey
-;set-ops: work only on the `primrary' key
-
-; mhh, constraints (pkeys here) do really matter only on "inserts"
-; rel. operations don't need them (yes, maybe for optimizing but thats beyond the scope of my impl.)
-
-; first try: field attributes in metadata
-; ex: (make-relation hoeck.rel.test/people-literal :fields '[#^{:primary-key true} id name vorname address-id])
-
-; other approaches: (make-relation bla :fields '[id ...] :primary-key [id])
-
-(make-constrained-relation ...)
-;-> internal: {id [name city]}
-;external: implements clojure.lang.IPersistentSet or hoeck.rel.Relation
-
-;pseudo-clojure:
-;(let [data '{1 [franz kafka], 
-;             2 [frank codd],
-;             3 [erich kaestner]}
-;      index-fn (fn [] (if `index-of-id-wanted') data, normal index on "set" of data)]
-;(fproxy-relation `[meta :index index-fn :tag clojure-constrained-relation]'
-;  {'seq (fn [] (map #(vector `(val %) (key %) (val %)') data))
-;   'count (fn [] (count data))
-;   'contains (fn [tup] (if (data `id-extracted-from-tup') true false))
-;   'get (fn [tup] like^^^^^)})
-
-; [. * .]
-; [* * *] <- selection
-; [. * .]
-;    ^
-;    `------ projection
-; =====================
-; [*]
-
-
-; [* * *] [* *]
-; [* * *] [* *] <- join ^= concat of tuples
-; [* * *] [* *]
-; =====================
-; [* * * * *]
-; [* * * * *]
-; [* * * * *]
-
-
-; [* * *]
-; [* * *]
-;  U,D,I
-; [* * *]
-; [* * *]
-; ======= set operation ^= concat of rows
-; [* * *]
-; [* * *]
-; [* * *]
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;,
-
-;tuple implementation
-;;;;;;;;;;;;;;;;;;;;;
-;sets of (struct-)maps
-;the struct map:
+;; misc functions
+(defn fields [R] (:fields ^R))
+(defn index [R] (:index ^R))
+(defn field? [form] (keyword? form))
 
 
 
-;primitive functions
-
-;project: remove certain keys from each structmap
-;select: remove certain structmaps
-;rename: rename struct-map-keys
-
-)

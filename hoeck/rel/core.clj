@@ -222,11 +222,7 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 
 (def *make-relation-default-initargs* {})
 
-(defmulti make-relation (fn [dispatch-arg & initargs] 
-                            (cond (keyword? dispatch-arg)
-                                    dispatch-arg
-                                  :else
-                                    (class dispatch-arg))))
+
 
 (defmethod make-relation clojure.lang.IPersistentSet
   [data & initargs]
@@ -253,119 +249,13 @@ ex: (subnvec '[a b c d e] [0 2 3]) -> [a c d]"
 (defn empty-relation [fields]
   (make-relation #{} :fields (vec fields)))
 
-;; conditions
-(defn make-coded-symbol-predicate
-  "Given a regex-pattern and group number, return a function that returns the 
-  matched group element group-nr on a given symbol."
-  [pattern, group-nr]
-  (fn [sym] 
-    (if-let [[g] (seq (re-seq pattern (str sym)))] (symbol (nth g group-nr)) nil)))
-
-(def #^{:doc 
-  "Return the fieldname of a symbol or nil of its not a field.
-  Fieldnames are symbols starting with `*' and ending with any other character than `*'."
-        :arglists '([symbol])}
-     field-name (make-coded-symbol-predicate #"^(\*)([^\*]+)$" 2))
-
-(def sample-expr '(or (= *name name) (= *address-id 100)))
-
-(defn make-field-symbol
-  "Make a field-naming symbol so that (field-name (make-field-name 'any-symbol))
-  always returns true."
-  [sym] (symbol (str "*" sym)))
-
-;;; sql stuff
-(defn clj->sql-multiarg-op
-  "Converts many-arg operator forms into infix-forms.
-  ex: (and a b c) -> (a and b and c)."
-  [form]
-  (let [op (first form)
-        args (next form)]
-    (if (< (count args) 2)
-      (throw (Exception. (format "need at least 2 arguments for %s" op)))
-      (interpose op args))))
-
-(defn clj->sql-2arg-op
-  "Converts 2 arg operators from clojure to sql-where clause expressions.
-  ex: (= a 1) -> (a = ), (= a b c) -> ((a = b) and (b = c))."
-  [form]
-  (let [op (first form)
-        args (next form)
-        two-arg-form #(list (first %) op (second %))]
-    (cond (< (count args) 2)
-            (throw (Exception. (format "need at least 2 arguments for %s" op)))
-          (= (count args) 2)
-            (list (first args) op (second args))
-          :else
-            (interpose 'and (map #(list % op %2) args (next args))))))
-
-(def #^{:doc "Mapping from function symbols to infix expansion fns."}
-     sql-condition-ops
-  (let [make-op-map (fn [op-expand-fn ops] (into {} (map #(vector %, op-expand-fn) ops)))]
-    (merge (make-op-map clj->sql-2arg-op '(= < > not=))
-           (make-op-map clj->sql-multiarg-op '(and or - + * / str))))) ; use str as an alias for string concatenation *shudder*
-
-;; condition-object
-(defn quote-condition-expression
-  "Quote the body of a condition."
-  [expr]
-  (let [cut-on-quote #(and (list? %) (= (first %) 'quote))
-        quote-sql-ops (fn [e] (walk-expr cut-on-quote ; don't quote already quoted forms
-                                         #(and
-                                           (list? %)
-                                           (let [h (first %)]
-                                             (and (symbol? h)
-                                                  (contains? sql-condition-ops h))))
-                                         #(cons 'list (cons (list 'quote (first %)) (next %)))
-                                         e))
-        quote-fields (fn [e] (walk-expr cut-on-quote
-                                        #(field-name %)
-                                        #(list 'quote %)
-                                        e))]
-    (quote-fields (quote-sql-ops expr))))
 
 
-;;;  The goal of this macro is to provide a function and a readable (and 
-;;;  transformable, to sql-infix) expression, both capturing the current
-;;;  environment (lexical scope) while preserving enough abstraction from
-;;;  the underlying relation implementation and reducing line noise."
-(defmacro condition
-  "create a function which creates a condition function given
-  a vector of columnnames of a particular relation.
-  Calling the constructor without an arg will return the underlying
-  condition-expression, the involved columns and additional properties."
-  ([expr] `(condition ~'anonymous-condition ~expr))
-  ([condition-name expr]
-  (let [used-fields (collect-exprs field-name expr)
-        used-field-names (map field-name used-fields)
-        fields (gensym)
-        tuple (gensym)
-        position-vars (take (count used-field-names) (repeatedly gensym))
-        column-lookup-expansion (fn [field] `(pos ~fields '~field))]
-    `(fn ~(symbol (str condition-name "-ctor"))
-      ([]
-         ;; Should throw an error if any operator is not in sql-condition-ops.
-         ;; Only if all operators used in expr are in sql-condition-ops the expr gets
-         ;; quoted correctly.
-         ;; If any operator is not in sql-condition-ops, then only introspection of the
-         ;; expr is not working, the condition-function-ctor and the
-         ;; condition-function are working anyway.
-         {:expr ~(quote-condition-expression expr), :fields'~used-field-names :type :user})
-      ([~fields]
-        (let ~(vec (mapcat #(list % (column-lookup-expansion %2)) position-vars used-field-names))
-          ;; should test that (every? #{~fields} used-fields), otherwise: ERROR
-          (fn ~(symbol (str condition-name)) [~tuple]
-            (let ~(vec (mapcat #(list %1 (list tuple %2)) used-fields position-vars))
-              ~expr))))))))
+;;; make-relation:
 
-;; some special conditions
-(defn make-identity-condition 
-  "A condition which evaluates to the given field-name."
-  [field-name]
-  (fn ([] {:expr (make-field-symbol field-name), :fields (list field-name), :type :identity})
-      ([fields] ;; should test that field_name is included in fields,
-                ;; otherwise throw an error
-         (let [field-pos (pos fields field-name)]
-           (fn [tuple] (tuple field-pos))))))
+;add an index to a set of hashmaps
+;index: metadata key :index, a de.kotka.lazymap mapping fields to sets of hashmaps
+
+
 
 
