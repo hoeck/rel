@@ -68,6 +68,8 @@
 (def-method seq)
 (def-method contains 1)
 (def-method empty)
+(def-method cons 1)
+(def-method disjoin 1)
 
 ;;;
 ;(require 'hoeck.rel.Relation)

@@ -70,6 +70,6 @@
 (defn fields [R] (:fields ^R))
 (defn index [R] (:index ^R))
 (defn field? [form] (keyword? form))
-
+(defn relation? [x] (if (:relation-tag ^x) true))
 
 

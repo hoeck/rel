@@ -52,29 +52,47 @@
                         lots-of-aliases))
           body)))
 
-(def-lots-of-aliases
-  (op rename xproduct make-relation fields index) ;; union intersection difference
-  ;(iris with-empty-universe <- ?-)
-  )
+;;(def-lots-of-aliases
+;;   (op make-relation) ;; union intersection difference
+;;   (iris with-empty-universe <- ?-)
+;;   )
+
+(defalias make-relation op/make-relation)
 
 ;; test
 
 (def people (op/make-relation td/people))
 
+;; global relation
+
+(def *relations* {})
+
+(defn- relation-or-lookup [keyword-or-relation]
+  (if (keyword? keyword-or-relation) 
+    (keyword-or-relation *relations*)
+    keyword-or-relation))
+
+;; misc
+
+(defn fields [R]
+  (op/fields (relation-or-lookup R)))
 
 ;; rename
+
+(defn rename [R name-newname-map]
+  (op/rename (relation-or-lookup R) name-newname-map))
 
 (defn as
   "rename all fields of a relation such that they have a common prefix"
   [R prefix]
-  (op/rename R (zipmap (fields R) (map #(keyword (str prefix "-" (name %))) (fields R)))))
+  (rename R (zipmap (fields R) (map #(keyword (str prefix "-" (name %))) (fields R)))))
 
 
 ;; select
 
 (defn select*
   [R condition]
-  (op/select R condition))
+  (op/select (relation-or-lookup R) condition))
 
 (defmacro select 
   ;; todo: pattern-like matching, eg: [a ? b] matches (condition (and (= *0 a) (= *2 b)))
@@ -87,23 +105,25 @@
   ;;       => qbe ????
   "Macro around select."
   [R condition]
-  `(select* ~R (cd/condition ~condition)))
+  `(select* (relation-or-lookup ~R) (cd/condition ~condition)))
 
 
 ;; project
 
-(def project* op/project) ;; list of keywords or conditions
+(defn project* [R condition-list]
+  (op/project (relation-or-lookup R) condition-list))
 
 (defmacro project
   "Convienience macro for the project operation."
   [R & exprs]
-  `(project* ~R (list ~@(map #(cond (op/field? %)
-                                      %
-                                    (vector? %)
-                                      `(cd/condition ~(first %) ~(second %))
-                                    :else 
-                                       `(cd/condition ~%))
-                             exprs))))
+  `(project* (relation-or-lookup ~R) 
+             (list ~@(map #(cond (op/field? %)
+                                   %
+                                 (vector? %)
+                                   `(cd/condition ~(first %) ~(second %))
+                                 :else 
+                                   `(cd/condition ~%))
+                          exprs))))
 
 ;; union, difference, intersection
 
@@ -112,10 +132,10 @@
   to take more than 2 relations."
   [set-op]
   (fn me 
-    ([R] R)
-    ([R S] (set-op R S))
+    ([R] (relation-or-lookup R))
+    ([R S] (set-op (relation-or-lookup R) (relation-or-lookup S)))
     ([R S & more]
-       (apply me (set-op R S) more))))
+       (apply me (set-op (relation-or-lookup R) (relation-or-lookup S)) more))))
 
 (def union (make-set-op-fn op/union))
 (def intersection (make-set-op-fn op/intersection))
@@ -128,28 +148,47 @@
   "return a function which implements the given join-op for more than two relation-field pairs."
   (fn multiarg-join    
     ([R r S s]
-       (join-op R r S s))
+       (join-op (relation-or-lookup R) r (relation-or-lookup S) s))
     ([R r S s & more]
        (if (= 1 (count more)) (throw (java.lang.IllegalArgumentException. "wrong number of arguments to join")))
-       (apply multiarg-join (join-op R r S s) r more))))
+       (apply multiarg-join (join-op (relation-or-lookup R) r (relation-or-lookup S) s) r more))))
 
 (def join (make-join-op-fn op/join))
 (def right-outer-join (make-join-op-fn (fn [R r S s] (union (op/join R r S s) R))))
 (def outer-join (make-join-op-fn (fn [R S r s] (union (join R r S s) (join S s R r) R S))))
 
+;; xproduct
+
+(defn xproduct [R S]
+  (op/xproduct (relation-or-lookup R) (relation-or-lookup S)))
+
+;; tools
+
+(defn order-by [R field <-or->]
+  (op/order-by (relation-or-lookup R) field <-or->))
+
 (defn group-by
   "Return a hasmap of field-values to sets of tuples
   where they occur in relation R. (aka sql-group by or index)."
   ([R field & more-fields]
-     (let [gi (fn group-index [index-set fields]
+     (let [R (relation-or-lookup R)
+           gi (fn group-index [index-set fields]
                 (if-let [field (first fields)]
                   (magic-map (fn ([] (map field index-set))
-                                 ([k] (group-index (clojure.set/intersection index-set (((index R) field) k)) (next fields)))))
+                                 ([k] (group-index (clojure.set/intersection index-set (((op/index R) field) k)) (next fields)))))
                   index-set))]
-         (magic-map (fn ([] (keys ((index R) field)))
-                        ([k] (gi (((index R) field) k) more-fields)))))))
+         (magic-map (fn ([] (keys ((op/index R) field)))
+                        ([k] (gi (((op/index R) field) k) more-fields)))))))
 
+(defn field-seq
+  "Return a seq of field values from a relation."
+  [R field]
+  (map field (project* R [field])))
 
+(defn like [x expr] ;; sql-like-like
+  (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
+    (.matches x (str ".*" expr ".*"))))
+        
 ;; pretty printing
 
 (defn- determine-column-sizes
@@ -173,7 +212,7 @@
                          (map #(max (:min-colsize opts) (- % amount)) pretty-col-widths)
                          pretty-col-widths))))
 
-(def *pretty-print-relation-opts* {:max-lines 30, :max-colsize 30, :max-linesize 70 :min-colsize 1})
+(def *pretty-print-relation-opts* {:max-lines 30, :max-colsize 80, :max-linesize 200 :min-colsize 1})
 
 (defn pretty-print-relation
   "Print a relation pretty readably to :writer (default *out*), try 
@@ -223,49 +262,31 @@
 ;  sql-connection sql-utils/make-connection-fn)
 
 
+
+
+;; example relations: namespaces
+
 (comment
 
-;; example relations: namespace, symbols
+(defn namespace-R []
+  (make-relation 
+   (map #(list (ns-name %) %) (all-ns))
+   :fields [:name :namespace]))
 
-(def namespaces (make-relation 
-                 (map #(list (ns-name %) %) (all-ns))
-                 :fields [:name :namespace]))
-
-(defn- ns-relation [ns-func field-name]
+(defn- ns-relation [namespace-rel ns-func field-name]
   (let [fields (list :ns-name :name field-name)]
     (make-relation (mapcat (fn [tup] (map #(zipmap fields (cons (:name tup) %)) 
                                           (ns-func (:namespace tup))))
-                           namespaces)
+                           namespace-rel)
                    :fields fields)))
 
-(def namespace-aliases (ns-relation ns-aliases :alias))
-(def namespace-imports (ns-relation ns-imports :import))
-(def namespace-refers (ns-relation ns-refers :varname))
-(def namespace-interns (ns-relation ns-interns :varname))
-(def namespace-publics (ns-relation ns-publics :varname))
-
-(= (select (difference namespace-interns namespace-publics) (= ~ns-name 'hoeck.rel.structmaps))
-   (get-in (index (difference namespace-interns namespace-publics)) [:ns-name 'hoeck.rel.structmaps]))
-
-;; example relations: files
-
-(defn file-relation [path]
+(defn file-relation [path-seq]
   (make-relation (map (fn [f] {:name (.getName f)
                                :path (.getParent f)
                                :size (.length f)})
-                      (filter #(not (.isDirectory %)) (file-seq (java.io.File. path))))
+                      (filter #(not (.isDirectory %)) 
+                              (mapcat #(file-seq (java.io.File. %)) path-seq)))
                  :fields [:name :path :size]))
-
-(op/order-by
- (project (file-relation "/home/timmy-turner/clojure/ra/hoeck")
-          [(/ ~size 1000.0) :size-in-kb] :name :path)
- :size-in-kb
- '<)
-
-(def classes (make-relation #{}))
-(def methods )
-(def constructors )
-(def fields )
 
 (defn class-tuple [c]
   {:name (symbol (.getName c))
@@ -281,18 +302,77 @@
    :super (if-let [n (.getSuperclass c)]
             (symbol (.getName n)))})
 
-(defn- add-class [c]
+(defn- add-class [classes c]
   (let [new-class (class-tuple c)
         sup (map class-tuple (supers c))]
-    (union classes (make-relation (set (conj sup new-class))))))
-(class-tuple (type {}))
-{:import java.lang.ProcessBuilder, :name ProcessBuilder, :ns-name swank.core.threadmap}
+    (reduce conj classes (conj sup new-class))))
 
-(count (select people (= ~id 99)))
+(defn make-classes [imports]
+  (make-relation (reduce add-class
+                         #{}
+                         (field-seq imports :import))))
 
-(binding [classes (make-relation (set (list (class-tuple java.lang.Object))))] 
-  (add-class (type {})))
+(defn class-interfaces [c]
+  (map (fn [i] {:interface (symbol (.getName i))
+                :class (symbol (.getName c))})
+       (filter #(.isInterface %) (supers c))))
 
+(defn interfaces [class-relation]
+  (make-relation (set (mapcat #(-> (class %) class-interfaces) (field-seq class-relation :name)))))
+
+(defn class-methods [class-symbol]
+  (map (fn [m] {:class class-symbol
+                :declaring-class (symbol (.getName (.getDeclaringClass m)))
+                :name (symbol (.getName m))
+                :returntype (symbol (.getName (.getReturnType m)))})
+       (seq (.getMethods (class class-symbol)))))
+
+(defn method-relation [class-relation]
+  (make-relation (set (mapcat class-methods (field-seq class-relation :name)))))
+
+(defn
+
+(defmacro with-reflection-relations [& body]
+  `(let [namespace-rel# (namespace-R)
+         imports# (ns-relation namespace-rel# ns-imports :import)
+         classes# (make-classes imports#)
+         methods# (method-relation classes#)]
+     (binding [*relations* (merge *relations* 
+                                  {:namespaces namespace-rel#
+                                   :aliases (ns-relation namespace-rel# ns-aliases :alias)
+                                   :imports imports#
+                                   :refers (ns-relation namespace-rel# ns-refers :varname)
+                                   :interns (ns-relation namespace-rel# ns-interns :varname)
+                                   :publics (ns-relation namespace-rel# ns-publics :varname)
+                                   :files (file-relation (list-classpaths))
+                                   :classes classes#
+                                   :implements (interfaces classes#)
+                                   :methods methods#})]
+       ~@body)))
+
+;; example: private definitions in the hoeck.rel.structmaps namespace
+(with-reflection-relations
+ (and (= (select (difference :interns :publics) (= ~ns-name 'hoeck.rel.structmaps))
+         (get-in (op/index (difference :interns :publics)) [:ns-name 'hoeck.rel.structmaps]))
+      (select (difference :interns :publics) (= ~ns-name 'hoeck.rel.structmaps))))
+
+
+(with-reflection-relations (*relations* :classes))
+;; example relations: files
+
+(comment
+(with-reflection-relations
+ (order-by
+  (project :files [(/ ~size 1000.0) :size-in-kb] :name :path)
+  :size-in-kb
+  '<))
+)
+
+(comment
+  (require '(clojure.contrib duck-streams sql command_line cond def duck_streams
+                             except fcase import_static javalog lazy_seqs lazy_xml
+                             mmap ns_utils seq_utils sql str_utils test_clojure
+                             test_is trace zip_filter)))
 )
 
 

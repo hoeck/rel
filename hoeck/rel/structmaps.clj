@@ -322,7 +322,7 @@
 
 (defmethod join :clojure [R r S s]
   (let [index-Ss (find (index S) s)
-        join-tuple (fn [r-tup] (let [friend (first ((val index-Ss) (r-tup r)))]
+        join-tuple (fn [r-tup] (let [friend (first (get (val index-Ss) (r-tup r)))]
                                  (if friend (merge r-tup (dissoc friend s)))))
         reverse-join (fn [s-tup] (map join-tuple (((index R) r) (s-tup s))))
         new-index (lazy-merge (map-index (fn [tuples] (set (filter identity (map join-tuple tuples)))) (index R))
