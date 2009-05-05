@@ -63,6 +63,11 @@
 
 (def people (op/make-relation td/people))
 
+;; misc
+
+(defn fields [R]
+  (op/fields (relation-or-lookup R)))
+
 ;; global relation
 
 (def *relations* {})
@@ -72,10 +77,12 @@
     (keyword-or-relation *relations*)
     keyword-or-relation))
 
-;; misc
-
-(defn fields [R]
-  (op/fields (relation-or-lookup R)))
+(defn relations 
+  "Return a relation of [:field :name] of all relations
+currently bound to *relations*"
+  []
+  (make-relation (mapcat (fn [r] (map #(hash-map :name r, :field %) (fields r)))
+                         (keys *relations*))))
 
 ;; rename
 
@@ -262,117 +269,5 @@
 ;  sql-connection sql-utils/make-connection-fn)
 
 
-
-
-;; example relations: namespaces
-
-(comment
-
-(defn namespace-R []
-  (make-relation 
-   (map #(list (ns-name %) %) (all-ns))
-   :fields [:name :namespace]))
-
-(defn- ns-relation [namespace-rel ns-func field-name]
-  (let [fields (list :ns-name :name field-name)]
-    (make-relation (mapcat (fn [tup] (map #(zipmap fields (cons (:name tup) %)) 
-                                          (ns-func (:namespace tup))))
-                           namespace-rel)
-                   :fields fields)))
-
-(defn file-relation [path-seq]
-  (make-relation (map (fn [f] {:name (.getName f)
-                               :path (.getParent f)
-                               :size (.length f)})
-                      (filter #(not (.isDirectory %)) 
-                              (mapcat #(file-seq (java.io.File. %)) path-seq)))
-                 :fields [:name :path :size]))
-
-(defn class-tuple [c]
-  {:name (symbol (.getName c))
-   :type (cond (.isInterface c) :interface
-               (.isEnum c) :enum
-               (.isArray c) :array
-               (.isAnonymousClass c) :anonymous
-               (.isLocalClass c) :local
-               (.isMemberClass c) :member
-               (.isPrimitive c) :primitive
-               (.isSynthetic c) :synthetic
-               :else :class)
-   :super (if-let [n (.getSuperclass c)]
-            (symbol (.getName n)))})
-
-(defn- add-class [classes c]
-  (let [new-class (class-tuple c)
-        sup (map class-tuple (supers c))]
-    (reduce conj classes (conj sup new-class))))
-
-(defn make-classes [imports]
-  (make-relation (reduce add-class
-                         #{}
-                         (field-seq imports :import))))
-
-(defn class-interfaces [c]
-  (map (fn [i] {:interface (symbol (.getName i))
-                :class (symbol (.getName c))})
-       (filter #(.isInterface %) (supers c))))
-
-(defn interfaces [class-relation]
-  (make-relation (set (mapcat #(-> (class %) class-interfaces) (field-seq class-relation :name)))))
-
-(defn class-methods [class-symbol]
-  (map (fn [m] {:class class-symbol
-                :declaring-class (symbol (.getName (.getDeclaringClass m)))
-                :name (symbol (.getName m))
-                :returntype (symbol (.getName (.getReturnType m)))})
-       (seq (.getMethods (class class-symbol)))))
-
-(defn method-relation [class-relation]
-  (make-relation (set (mapcat class-methods (field-seq class-relation :name)))))
-
-(defn
-
-(defmacro with-reflection-relations [& body]
-  `(let [namespace-rel# (namespace-R)
-         imports# (ns-relation namespace-rel# ns-imports :import)
-         classes# (make-classes imports#)
-         methods# (method-relation classes#)]
-     (binding [*relations* (merge *relations* 
-                                  {:namespaces namespace-rel#
-                                   :aliases (ns-relation namespace-rel# ns-aliases :alias)
-                                   :imports imports#
-                                   :refers (ns-relation namespace-rel# ns-refers :varname)
-                                   :interns (ns-relation namespace-rel# ns-interns :varname)
-                                   :publics (ns-relation namespace-rel# ns-publics :varname)
-                                   :files (file-relation (list-classpaths))
-                                   :classes classes#
-                                   :implements (interfaces classes#)
-                                   :methods methods#})]
-       ~@body)))
-
-;; example: private definitions in the hoeck.rel.structmaps namespace
-(with-reflection-relations
- (and (= (select (difference :interns :publics) (= ~ns-name 'hoeck.rel.structmaps))
-         (get-in (op/index (difference :interns :publics)) [:ns-name 'hoeck.rel.structmaps]))
-      (select (difference :interns :publics) (= ~ns-name 'hoeck.rel.structmaps))))
-
-
-(with-reflection-relations (*relations* :classes))
-;; example relations: files
-
-(comment
-(with-reflection-relations
- (order-by
-  (project :files [(/ ~size 1000.0) :size-in-kb] :name :path)
-  :size-in-kb
-  '<))
-)
-
-(comment
-  (require '(clojure.contrib duck-streams sql command_line cond def duck_streams
-                             except fcase import_static javalog lazy_seqs lazy_xml
-                             mmap ns_utils seq_utils sql str_utils test_clojure
-                             test_is trace zip_filter)))
-)
 
 
