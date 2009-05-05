@@ -121,8 +121,8 @@
 (defmethod make-relation clojure.lang.Seqable
   [S & opts]
   (let [o (apply hash-map opts)
-        fields (:fields o)
-        S-seq (cond (map? (first S)) S;; seq of hashmaps as tuples
+        fields (or (:fields o) (if (map? (first S)) (keys (first S))) (throw (Exception. "no fieldsnames supplied")))
+        S-seq (cond (map? (first S)) S ;; seq of hashmaps as tuples
                      :else (map #(zipmap fields %) S));; seq of seqs
         S-set (delay (set S-seq))
         R (Relation. {:fields fields
