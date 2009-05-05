@@ -59,14 +59,6 @@
 
 (defalias make-relation op/make-relation)
 
-;; test
-
-(def people (op/make-relation td/people))
-
-;; misc
-
-(defn fields [R]
-  (op/fields (relation-or-lookup R)))
 
 ;; global relation
 
@@ -77,12 +69,17 @@
     (keyword-or-relation *relations*)
     keyword-or-relation))
 
+(defn fields [R]
+  (op/fields (relation-or-lookup R)))
+
 (defn relations 
   "Return a relation of [:field :name] of all relations
 currently bound to *relations*"
   []
-  (make-relation (mapcat (fn [r] (map #(hash-map :name r, :field %) (fields r)))
-                         (keys *relations*))))
+  (make-relation (set (mapcat (fn [r] (map #(hash-map :name r
+                                                      :field %)
+                                           (fields r)))
+                              (keys *relations*)))))
 
 ;; rename
 

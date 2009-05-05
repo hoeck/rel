@@ -5,22 +5,22 @@
   (:use hoeck.rel
         hoeck.library))
 
-(defn- sym->class  [s]
+(defn sym->class  [s]
   (Class/forName (name s)))
 
-(defn- namespace-R []
+(defn namespace-R []
   (make-relation 
    (map #(list (ns-name %) %) (all-ns))
    :fields [:name :namespace]))
 
-(defn- ns-relation [namespace-rel ns-func field-name]
+(defn ns-relation [namespace-rel ns-func field-name]
   (let [fields (list :ns-name :name field-name)]
     (make-relation (mapcat (fn [tup] (map #(zipmap fields (cons (:name tup) %)) 
                                           (ns-func (:namespace tup))))
                            namespace-rel)
                    :fields fields)))
 
-(defn- file-relation [path-seq]
+(defn file-relation [path-seq]
   (make-relation (map (fn [f] {:name (.getName f)
                                :path (.getParent f)
                                :size (.length f)})
@@ -41,12 +41,12 @@
                             [:transient java.lang.reflect.Modifier/TRANSIENT]
                             [:volatile java.lang.reflect.Modifier/VOLATILE]]
                            :fields [:key :id])]
-  (defn- modifiers 
+  (defn modifiers 
     ([] modif)
     ([id] (map #(-> (group-by modif :id) (get %) first :key)
                (filter #(not= 0 (bit-and id %)) (map #(bit-shift-left 1 %) (range 12)))))))
 
-(defn- class-tuple [c]
+(defn class-tuple [c]
   {:name (symbol (.getName c))
    :type (cond (.isInterface c) :interface
                (.isEnum c) :enum
@@ -60,25 +60,25 @@
    :super (if-let [n (.getSuperclass c)]
             (symbol (.getName n)))})
 
-(defn- add-class [classes c]
+(defn add-class [classes c]
   (let [new-class (class-tuple c)
         sup (map class-tuple (supers c))]
     (reduce conj classes (conj sup new-class))))
 
-(defn- make-classes [imports]
+(defn make-classes [imports]
   (make-relation (reduce add-class
                          #{}
                          (field-seq imports :import))))
 
-(defn- class-interfaces [c]
+(defn class-interfaces [c]
   (map (fn [i] {:interface (symbol (.getName i))
                 :class (symbol (.getName c))})
        (filter #(.isInterface %) (supers c))))
 
-(defn- interfaces [class-relation]
+(defn interfaces [class-relation]
   (make-relation (set (mapcat #(-> (sym->class %) class-interfaces) (field-seq class-relation :name)))))
 
-(defn- class-methods [class-symbol]
+(defn class-methods [class-symbol]
   (map (fn [m] {:class class-symbol
                 :declaring-class (symbol (.getName (.getDeclaringClass m)))
                 :name (symbol (.getName m))
@@ -86,10 +86,10 @@
                 :returntype (symbol (.getName (.getReturnType m)))})
        (seq (.getMethods (sym->class class-symbol)))))
 
-(defn- method-relation [class-relation]
+(defn method-relation [class-relation]
   (make-relation (set (mapcat class-methods (field-seq class-relation :name)))))
 
-(defn- method-arguments [class-symbol]
+(defn method-arguments [class-symbol]
   (mapcat (fn [m] (map (fn [c p] {:method (symbol (.getName m))
                                   :argument (symbol (.getName c))
                                   :position p})
@@ -97,10 +97,10 @@
                        (range (count (.getParameterTypes m)))))
           (.getDeclaredMethods (sym->class class-symbol))))
 
-(defn- method-arguments-relation [method-relation]
+(defn method-arguments-relation [method-relation]
   (make-relation (set (mapcat method-arguments (field-seq method-relation :class)))))
 
-(defn- method-and-class-modifiers [class-relation]
+(defn method-and-class-modifiers [class-relation]
   (let [modifier-seq (fn [name, mod-id] 
                        (map (fn [m] {:name name
                                      :modifier m})
