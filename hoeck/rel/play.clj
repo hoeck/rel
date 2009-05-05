@@ -360,3 +360,26 @@ nil
   (let [friend (first ((val index-Ss) (r-tup r)))]
     
     (if friend (merge r-tup (dissoc friend s)))))
+
+(in-ns 'hoeck.rel)
+
+(hoeck.rel.reflection/with-relations (def *relations* *relations*))
+(select :classes (like ~name 'APersistentSet))
+
+(fields :methods)
+(:class :declaring-class :name :arity :returntype)
+(join (select :classes (like ~name 'APersistentSet)) :name
+      (as :methods 'm) :m-class)
+
+(fields :methods)
+(:class :declaring-class :name :arity :returntype)
+(select :methods (like ~class 'APersistentSet))
+
+(let [R (make-relation #{{:a 1}})
+      S (make-relation #{{:b 1 :c 1} {:b 1 :c 2}})]
+(union (join  R :a
+              S :b)
+       (join S :b
+             R :a)));;; NPE ????????????????
+                    
+

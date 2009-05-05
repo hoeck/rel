@@ -111,7 +111,7 @@
                                 (map sym->class (field-seq class-relation :name)))))))
 
 
-(defmacro with-reflection-relations [& body]
+(defmacro with-relations [& body]
   `(let [namespace-rel# (namespace-R)
          imports# (ns-relation namespace-rel# ns-imports :import)
          classes# (make-classes imports#)
@@ -140,24 +140,24 @@
                              mmap ns_utils seq_utils sql str_utils test_clojure
                              test_is trace zip_filter))
 
-(with-reflection-relations
+(with-relations
  ;; example: private definitions in the hoeck.rel.structmaps namespace
  (and (= (select (difference :interns :publics) (= ~ns-name 'hoeck.rel.structmaps))
          (get-in (op/index (difference :interns :publics)) [:ns-name 'hoeck.rel.structmaps])) ;; test index
       (select (difference :interns :publics) (= ~ns-name 'hoeck.rel.structmaps))))
 
 ;; class relation
-(with-reflection-relations (*relations* :classes))
+(with-relations (*relations* :classes))
 
 ;; list all files on the classpath
-(with-reflection-relations
+(with-relations
  (order-by
   (project :files [(/ ~size 1000.0) :size-in-kb] :name :path)
   :size-in-kb
   '<))
 
 ;; all classes implementing clojure.lang.IFn
-(with-reflection-relations (select :implements (like ~interface 'IFn)))
+(with-relations (select :implements (like ~interface 'IFn)))
 
 )
 

@@ -60,9 +60,9 @@
 
 ;; IRIS API:
 
-(def  basic-factory (BasicFactory/getInstance))
-(def  term-factory (TermFactory/getInstance))
-(def  concrete-term-factory (ConcreteFactory/getInstance))
+(def basic-factory (BasicFactory/getInstance))
+(def term-factory (TermFactory/getInstance))
+(def concrete-term-factory (ConcreteFactory/getInstance))
 
 (defn term-create-symbol [form]
   (let [n (pr-str form)]
