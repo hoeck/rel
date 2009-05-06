@@ -322,16 +322,16 @@
 
 (defmethod join :clojure [R r S s]
   (let [index-Ss (find (index S) s)
-        join-tuple (fn [r-tup] (let [friend (first (get (val index-Ss) (r-tup r)))]
-                                 (if friend (merge r-tup (dissoc friend s)))))
-        reverse-join (fn [s-tup] (map join-tuple (((index R) r) (s-tup s))))
-        new-index (lazy-merge (map-index (fn [tuples] (set (filter identity (map join-tuple tuples)))) (index R))
+        join-tuple (fn [r-tup] (let [friends (get (val index-Ss) (r-tup r))]
+                                 (if friends (map #(merge r-tup (dissoc % s)) friends))))
+        reverse-join (fn [s-tup] (map #(merge (dissoc s-tup s) %) (((index R) r) (s-tup s))))
+        new-index (lazy-merge (map-index (fn [tuples] (set (filter identity (mapcat join-tuple tuples)))) (index R))
                               (map-index #(set (mapcat reverse-join %)) (dissoc (index S) s)))]
     (Relation. (merge ^S ^R
                       {:fields (concat (fields R) (filter #(not= s %) (fields S))), 
                        :index new-index})
-               {'seq (fn [_] (filter identity (map join-tuple R)))
-                'count (fn [_] (count R))
+               {'seq (fn [_] (filter identity (mapcat join-tuple R)))
+                'count (fn [_] (count (seq _)))
                 'get (fn [_ k] (first (index-lookup new-index k)))})))
 
 (deftest join-test
