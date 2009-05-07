@@ -27,25 +27,17 @@
 (ns hoeck.rel.iris
  (:require [hoeck.rel.operators :as op])
  (:use hoeck.library
-       hoeck.rel))
-
-;(add-classpath "file:///home/timmy-turner/clojure/iris-0.58.jar")
-;(add-classpath "file:///home/timmy-turner/clojure/iris-parser-0.58.jar")
-;(add-classpath "file:/g:/clojure/iris-0.58.jar")
-;(add-classpath "file:/g:/clojure/iris-parser-0.58.jar")
-(import '(java.util ArrayList)
-
-        '(org.deri.iris KnowledgeBaseFactory)
-        '(org.deri.iris.storage IRelation)
-        '(org.deri.iris.api.basics ITuple IPredicate)
-        '(org.deri.iris.api.terms IVariable INumericTerm IStringTerm IConstructedTerm)
-        '(org.deri.iris.basics Tuple Predicate BasicFactory)
-        '(org.deri.iris.terms TermFactory)
-        '(org.deri.iris.terms.concrete ConcreteFactory)
-        
-        '(clojure.lang IObj)) ;; for meta & withMeta
-
-;        '(hoeck.rel.iris IClojureSymbol IClojureKeyword))
+       hoeck.rel)
+ (:import (java.util ArrayList)
+          (org.deri.iris KnowledgeBaseFactory)
+          (org.deri.iris.storage IRelation)
+          (org.deri.iris.api.basics ITuple IPredicate)
+          (org.deri.iris.api.terms IVariable INumericTerm IStringTerm IConstructedTerm)
+          (org.deri.iris.basics Tuple Predicate BasicFactory)
+          (org.deri.iris.terms TermFactory)
+          (org.deri.iris.terms.concrete ConcreteFactory)        
+          (clojure.lang IObj) ;; for meta & withMeta
+          (hoeck.rel.iris ISymbol IKeyword)))
 
 (def persistent-exception
   (Exception. "this is a persisten object, therefor not implemented"))
@@ -58,10 +50,10 @@
 
 (defn term-create-symbol [form]
   (let [n (str form)]
-  (proxy [hoeck.rel.iris.ISymbol] []
-    (getValue [] n)
-    (isGround [] true)
-    (compareTo [x] (= n (.getValue x))))))
+    (proxy [hoeck.rel.iris.ISymbol] []
+      (getValue [] n)
+      (isGround [] true)
+      (compareTo [x] (= n (.getValue x))))))
 
 (defn variablename? [string]
   (.startsWith string "?"))
