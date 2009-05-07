@@ -25,8 +25,9 @@
 ;   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns hoeck.rel.iris
- (:require [hoeck.rel.core :as rel-core])
- (:use hoeck.library, clojure.contrib.fcase))
+ (:require [hoeck.rel.operators :as op])
+ (:use hoeck.library
+       hoeck.rel))
 
 ;(add-classpath "file:///home/timmy-turner/clojure/iris-0.58.jar")
 ;(add-classpath "file:///home/timmy-turner/clojure/iris-parser-0.58.jar")
@@ -44,19 +45,10 @@
         
         '(clojure.lang IObj)) ;; for meta & withMeta
 
-
 ;        '(hoeck.rel.iris IClojureSymbol IClojureKeyword))
 
-(def  persistent-exception
+(def persistent-exception
   (Exception. "this is a persisten object, therefor not implemented"))
-
-;; custom iris-types:
-;; marker interfaces for keywords and symbols
-(gen-interface :name hoeck.rel.iris/IClojureSymbol
-               :extends [org.deri.iris.api.terms.IStringTerm])
-
-(gen-interface :name hoeck.rel.iris/IClojureKeyword
-               :extends [org.deri.iris.api.terms.IStringTerm])
 
 ;; IRIS API:
 
@@ -65,8 +57,8 @@
 (def concrete-term-factory (ConcreteFactory/getInstance))
 
 (defn term-create-symbol [form]
-  (let [n (pr-str form)]
-  (proxy [hoeck.rel.iris.IClojureSymbol] []
+  (let [n (str form)]
+  (proxy [hoeck.rel.iris.ISymbol] []
     (getValue [] n)
     (isGround [] true)
     (compareTo [x] (= n (.getValue x))))))
