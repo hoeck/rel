@@ -1,4 +1,8 @@
 
+
+
+
+
 ;; repl setup
 (do
   (in-ns 'user)
@@ -358,4 +362,112 @@ false
 (in-ns 'hoeck.rel.structmaps)
 
 (run-tests)
+
+(in-ns 'user)
+(require '[hoeck.rel.reflection :as rf])
+
+(def rels (rf/with-relations *relations*))
+(rf/with-relations
+ (order-by (relations) :name '<))
+#{{:field :name,            :name :aliases    }
+  {:field :alias,           :name :aliases    }
+  {:field :ns-name,         :name :aliases    }
+  {:field :name,            :name :classes    }
+  {:field :type,            :name :classes    }
+  {:field :super,           :name :classes    }
+  {:field :name,            :name :files      }
+  {:field :size,            :name :files      }
+  {:field :path,            :name :files      }
+  {:field :class,           :name :implements }
+  {:field :interface,       :name :implements }
+  {:field :import,          :name :imports    }
+  {:field :name,            :name :imports    }
+  {:field :ns-name,         :name :imports    }
+  {:field :varname,         :name :interns    }
+  {:field :ns-name,         :name :interns    }
+  {:field :name,            :name :interns    }
+  {:field :class,           :name :method-args}
+  {:field :method,          :name :method-args}
+  {:field :position,        :name :method-args}
+  {:field :type    ,        :name :method-args}
+  {:field :class,           :name :methods    }
+  {:field :name,            :name :methods    }
+  {:field :returntype,      :name :methods    }
+  {:field :declaring-class, :name :methods    }
+  {:field :arity,           :name :methods    }
+  {:field :name,            :name :modifiers  }
+  {:field :modifier,        :name :modifiers  }
+  {:field :namespace,       :name :namespaces }
+  {:field :name,            :name :namespaces }
+  {:field :varname,         :name :publics    }
+  {:field :ns-name,         :name :publics    }
+  {:field :name,            :name :publics    }
+  {:field :name,            :name :refers     }
+  {:field :varname,         :name :refers     }
+  {:field :ns-name,         :name :refers     }}
+
+
+
+
+
+(count (find-more-classes rels))
+(count (:classes rels))
+       
+
+(binding [*relations* rels]
+  (select :methods (and (like ~class 'BasicFactory)
+                        (like ~name 'Predicate)))
+  (join (select :methods (like ~class 'IPredicate)) :name
+        :method-args :method)
+
+  (select :methods (like ~:class 'IPredicate)))
+
+
+#{{:name org.deri.iris.api.basics.IPredicate, :type :interface, :super nil}}
+
+
+
+
+#{{:class org.deri.iris.basics.BasicFactory,       :method createPredicate, :argument java.lang.String, :position 0}
+  {:class org.deri.iris.api.factory.IBasicFactory, :method createPredicate, :argument int,              :position 1}
+  {:class org.deri.iris.api.factory.IBasicFactory, :method createPredicate, :argument java.lang.String, :position 0}
+  {:class org.deri.iris.basics.BasicFactory,       :method createPredicate, :argument int,              :position 1}}
+
+
+(map #(.getName %) (.getMethods org.deri.iris.api.basics.IPredicate))
+("getPredicateSymbol" "getArity" "compareTo")
+(map #(.getName %) (.getDeclaredMethods org.deri.iris.api.basics.IPredicate))
+("getPredicateSymbol" "getArity")
+
+
+
+
+#{{:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.lang.Float,                     :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.lang.Object,                    :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument org.deri.iris.api.basics.ITuple,     :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.lang.Byte,                      :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.lang.Short,                     :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.math.BigDecimal,                :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.lang.Double,                    :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.io.File,                        :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.math.BigInteger,                :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.lang.Long,                      :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.lang.Boolean,                   :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.lang.Character,                 :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.lang.Enum,                      :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.lang.Integer,                   :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument java.lang.String,                    :position 0}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable, :name compareTo, :arity 1, :returntype int, :argument org.deri.iris.api.basics.IPredicate, :position 0}}
+
+#{{:class org.deri.iris.api.basics.IPredicate, :declaring-class org.deri.iris.api.basics.IPredicate, :name getPredicateSymbol, :arity 0, :returntype java.lang.String}
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class java.lang.Comparable,                :name compareTo,          :arity 1, :returntype int             }
+  {:class org.deri.iris.api.basics.IPredicate, :declaring-class org.deri.iris.api.basics.IPredicate, :name getArity,           :arity 0, :returntype int             }}
+
+#{{:class org.deri.iris.basics.BasicFactory,       :declaring-class org.deri.iris.basics.BasicFactory,       :name createPredicate, :arity 2, :returntype org.deri.iris.api.basics.IPredicate}
+  {:class org.deri.iris.api.factory.IBasicFactory, :declaring-class org.deri.iris.api.factory.IBasicFactory, :name createPredicate, :arity 2, :returntype org.deri.iris.api.basics.IPredicate}}
+
+
+
+
+
 

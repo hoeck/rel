@@ -65,10 +65,10 @@
         sup (map class-tuple (supers c))]
     (reduce conj classes (conj sup new-class))))
 
-(defn make-classes [imports]
+(defn make-classes [class-seq]
   (make-relation (reduce add-class
                          #{}
-                         (field-seq imports :import))))
+                         (map sym->class class-seq))))
 
 (defn class-interfaces [c]
   (map (fn [i] {:interface (symbol (.getName i))
@@ -90,8 +90,9 @@
   (make-relation (set (mapcat class-methods (field-seq class-relation :name)))))
 
 (defn method-arguments [class-symbol]
-  (mapcat (fn [m] (map (fn [c p] {:method (symbol (.getName m))
-                                  :argument (symbol (.getName c))
+  (mapcat (fn [m] (map (fn [c p] {:class class-symbol
+                                  :method (symbol (.getName m))
+                                  :type (symbol (.getName c))
                                   :position p})
                        (.getParameterTypes m)
                        (range (count (.getParameterTypes m)))))
@@ -110,29 +111,48 @@
                                                 (modifier-seq (symbol (.getName c)) (.getModifiers c))))
                                 (map sym->class (field-seq class-relation :name)))))))
 
+(defn find-more-classes 
+  "Look in all reflection relations for not-yet seen classses,
+  eg. returnvalues from methods, method-args, interfaces."
+  [relation-map]
+  (binding [*relations* relation-map]
+    (field-seq (union (rename (project :classes :name) :name :class)
+                      (rename (project :implements :interface) :interface :class)
+                      (rename (project :imports :import) :import :class)
+                      (rename (project :method-args :type) :type :class)
+                      (rename (project :methods :returntype) :returntype :class))
+               :class)))
+
+
+(defn build-reflection-relations 
+  ([] (build-reflection-relations nil))
+  ([classes]
+     (let [namespace-rel (namespace-R)
+           imports (ns-relation namespace-rel (fn [ns] (into {} (map #(vector (key %) (symbol (.getName (val %)))) (ns-imports ns)))) :import)
+           classes (make-classes (concat (field-seq imports :import) classes))
+           methods (method-relation classes)]
+       {:namespaces namespace-rel
+        :aliases (ns-relation namespace-rel ns-aliases :alias)
+        :imports imports
+        :refers (ns-relation namespace-rel ns-refers :varname)
+        :interns (ns-relation namespace-rel ns-interns :varname)
+        :publics (ns-relation namespace-rel ns-publics :varname)
+        :files (file-relation (list-classpaths))
+        :classes classes
+        :implements (interfaces classes)
+        :methods methods
+        :method-args (method-arguments-relation methods)
+        :modifiers (method-and-class-modifiers classes)})))
 
 (defmacro with-relations [& body]
-  `(let [namespace-rel# (namespace-R)
-         imports# (ns-relation namespace-rel# ns-imports :import)
-         classes# (make-classes imports#)
-         methods# (method-relation classes#)]
-     (binding [*relations* (merge *relations*
-                                  {:namespaces namespace-rel#
-                                   :aliases (ns-relation namespace-rel# ns-aliases :alias)
-                                   :imports imports#
-                                   :refers (ns-relation namespace-rel# ns-refers :varname)
-                                   :interns (ns-relation namespace-rel# ns-interns :varname)
-                                   :publics (ns-relation namespace-rel# ns-publics :varname)
-                                   :files (file-relation (list-classpaths))
-                                   :classes classes#
-                                   :implements (interfaces classes#)
-                                   :methods methods#
-                                   :method-args (method-arguments-relation methods#)
-                                   :modifiers (method-and-class-modifiers classes#)})]
-       ~@body)))
+  `(binding [*relations* (merge *relations* (build-reflection-relations))]
+     ~@body))
 
+(defn missing-classes? [relations]
+  (< (count (:classes relations))
+     (count (find-more-classes relations))))
 
-(comment 
+(comment
 
 ;; load many libs
 (require '(clojure.contrib duck-streams sql command_line cond def duck_streams
@@ -159,6 +179,8 @@
 ;; all classes implementing clojure.lang.IFn
 (with-relations (select :implements (like ~interface 'IFn)))
 
+
+(missing-classes? (build-reflection-relations (find-more-classes (build-reflection-relations))))
 )
 
 

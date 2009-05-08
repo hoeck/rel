@@ -32,7 +32,7 @@
             [hoeck.rel.structmaps :as st]
             [hoeck.rel.conditions :as cd]
             [hoeck.rel.testdata :as td]
-            hoeck.magic-map.MagicMap
+            hoeck.magic-map.MagicMap ;; my broken compile needs to load the namespaces here
             hoeck.value-mapped-map.ValueMappedMap)
   (:use hoeck.library
         hoeck.magic-map
@@ -64,7 +64,7 @@
 
 (def *relations* {})
 
-(defn- relation-or-lookup [keyword-or-relation]
+(defn relation-or-lookup [keyword-or-relation]
   (if (keyword? keyword-or-relation) 
     (keyword-or-relation *relations*)
     keyword-or-relation))
@@ -83,13 +83,16 @@ currently bound to *relations*"
 
 ;; rename
 
-(defn rename [R name-newname-map]
+(defn rename* [R name-newname-map]
   (op/rename (relation-or-lookup R) name-newname-map))
+
+(defmacro rename [R & name-newname-pairs]
+  `(rename* ~R (hash-map ~@name-newname-pairs)))
 
 (defn as
   "rename all fields of a relation such that they have a common prefix"
   [R prefix]
-  (rename R (zipmap (fields R) (map #(keyword (str prefix "-" (name %))) (fields R)))))
+  (rename* R (zipmap (fields R) (map #(keyword (str prefix "-" (name %))) (fields R)))))
 
 
 ;; select

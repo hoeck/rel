@@ -27,7 +27,7 @@
 (ns hoeck.rel.iris
  (:require [hoeck.rel.operators :as op])
  (:use hoeck.library
-       hoeck.rel)
+       [hoeck.rel :exclude [make-relation]])
  (:import (java.util ArrayList)
           (org.deri.iris KnowledgeBaseFactory)
           (org.deri.iris.storage IRelation)
@@ -37,7 +37,8 @@
           (org.deri.iris.terms TermFactory)
           (org.deri.iris.terms.concrete ConcreteFactory)        
           (clojure.lang IObj) ;; for meta & withMeta
-          (hoeck.rel.iris ISymbol IKeyword)))
+          (hoeck.rel.iris ISymbol IKeyword)
+          (hoeck.rel Relation)))
 
 (def persistent-exception
   (Exception. "this is a persisten object, therefor not implemented"))
@@ -78,10 +79,10 @@
 (defn term->form
   "The opposite of make-term."
   [term]
-  (instance-case term
+  (condp type term
     IVariable (symbol (str "?" (.getValue term)))
-    hoeck.rel.iris.IClojureSymbol (symbol term)
-    hoeck.rel.iris.IClojureKeyword (keyword term)
+    hoeck.rel.iris.ISymbol (symbol term)
+    hoeck.rel.iris.IKeyword (keyword term)
     IConstructedTerm (cons (symbol (.getFunctionSymbol term)) (map term->form (.getParameters term)))
     (.getValue term)))
 
@@ -151,18 +152,20 @@
 (defn make-fact
   "a fact is a named relation."
   ([predicate-name relation]
-     [(make-predicate predicate-name (rel-core/arity relation))
+     [(make-predicate predicate-name (count (fields relation)))
       (make-relation relation)]))
 
+(comment
 ;; iris -> hoeck.rel
-(defmethod rel-core/make-relation IRelation
+(defmethod op/make-relation IRelation
   [irel & args]
   ;;; mhhh, be lazy??
-  (rel-core/fproxy-relation {:relation-tag :iris}
+  (Relation. {:relation-tag :iris}
     {'contains (fn [_ tuple] (if (.contains irel (make-tuple tuple)) true false))
      'seq (fn [_] (map #(vec (tuple->form (.get irel %))) (range (.size irel))))
      'count (fn [_] (.size irel))
      'get (fn [_ tuple] (if (.contains irel (make-tuple tuple)) tuple nil))}))
+)
 
 ;(make-fact 'p '#{[4 3] [2 3] [1 2] [a 4]})
 
