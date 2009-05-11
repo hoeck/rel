@@ -388,8 +388,8 @@ false
   {:field :name,            :name :interns    }
   {:field :class,           :name :method-args}
   {:field :method,          :name :method-args}
+  {:field :type,            :name :method-args}
   {:field :position,        :name :method-args}
-  {:field :type    ,        :name :method-args}
   {:field :class,           :name :methods    }
   {:field :name,            :name :methods    }
   {:field :returntype,      :name :methods    }
@@ -407,13 +407,9 @@ false
   {:field :ns-name,         :name :refers     }}
 
 
-
-
-
 (count (find-more-classes rels))
 (count (:classes rels))
        
-
 (binding [*relations* rels]
   (select :methods (and (like ~class 'BasicFactory)
                         (like ~name 'Predicate)))
@@ -422,11 +418,7 @@ false
 
   (select :methods (like ~:class 'IPredicate)))
 
-
 #{{:name org.deri.iris.api.basics.IPredicate, :type :interface, :super nil}}
-
-
-
 
 #{{:class org.deri.iris.basics.BasicFactory,       :method createPredicate, :argument java.lang.String, :position 0}
   {:class org.deri.iris.api.factory.IBasicFactory, :method createPredicate, :argument int,              :position 1}
@@ -468,6 +460,34 @@ false
 
 
 
+
+
+
+(map type (filter #(= 'boolean %) (find-more-classes (build-reflection-relations))))
+
+(sym->class 'boolean)
+
+
+(def array-return-type (.getReturnType (first (filter #(= (.getName %) "getMethods") (seq (.getMethods java.lang.Class))))))
+
+(.isArray array-return-type)
+true
+(symbol "java.lang.reflect.Method[]")
+
+
+
+ '[Ljava.lang.reflect.Method;
+boolean
+
+(sym->class Boolean/TYPE)
+
+
+Void/TYPE
+(sym->class 'void)
+
+(first (find-more-classes rels))
+
+([Ljava.lang.ThreadGroup; clojure.asm.Label java.security.CodeSource clojure.asm.commons.TableSwitchGenerator clojure.lang.Symbol clojure.lang.Compiler$C [Lclojure.asm.Label; boolean java.io.FilenameFilter float java.io.ObjectOutputStream org.xml.sax.Locator [B [Ljava.lang.reflect.AccessibleObject; clojure.asm.Item [Ljava.lang.reflect.Method; clojure.lang.Keyword java.lang.ThreadLocal$ThreadLocalMap clojure.lang.Compiler$FnMethod [Z [Ljava.lang.String; [F [Ljava.lang.StackTraceElement; clojure.lang.ISeq [Ljava.lang.reflect.Field; org.xml.sax.helpers.DefaultHandler [Ljava.lang.reflect.Constructor; java.math.MathContext [D java.io.InputStream sun.misc.Resource [I clojure.lang.Compiler$LocalBinding [C sun.nio.ch.Interruptible java.net.NetworkInterface [J java.util.concurrent.TimeUnit short long java.io.PrintStream java.util.Locale java.io.OutputStream java.io.FileDescriptor clojure.lang.Compiler$Expr java.util.Properties [Ljava.net.URL; char [Ljava.lang.Thread; [Ljava.lang.Object; org.xml.sax.InputSource java.util.ArrayList sun.reflect.ConstructorAccessor java.util.Random java.nio.ByteBuffer [Ljava.lang.Class; int java.math.RoundingMode clojure.lang.Var double java.lang.reflect.Method java.util.concurrent.LinkedBlockingQueue$Node java.net.SocketAddress clojure.lang.Namespace java.util.zip.Inflater org.xml.sax.HandlerBase java.io.ObjectInputStream java.util.jar.Manifest sun.reflect.annotation.AnnotationType byte [Ljava.security.cert.Certificate; sun.net.spi.nameservice.NameService java.nio.CharBuffer java.net.SocketImplFactory javax.xml.validation.Schema java.io.FileFilter java.io.PrintWriter java.nio.charset.Charset java.util.zip.ZipEntry [Lclojure.asm.Type; [S java.net.URL java.security.ProtectionDomain [Ljava.math.BigDecimal; clojure.asm.Attribute clojure.lang.Stream java.nio.channels.Channel clojure.lang.Delay [[Ljava.lang.annotation.Annotation; void java.net.URI clojure.asm.FieldVisitor org.xml.sax.Parser [Ljava.lang.annotation.Annotation; org.xml.sax.XMLReader [Ljava.lang.Package; [Ljava.io.File; [Ljava.lang.Thread$State; [Ljava.math.BigInteger; java.util.ListIterator [Ljava.lang.reflect.TypeVariable; java.io.Console java.util.Enumeration java.nio.channels.SocketChannel [Ljava.lang.reflect.Type; clojure.asm.AnnotationVisitor java.lang.reflect.Field java.nio.channels.ServerSocketChannel java.security.PermissionCollection [Ljava.net.InetAddress;)
 
 
 
