@@ -192,10 +192,14 @@ currently bound to *relations*"
   [R field]
   (map field (project* R [field])))
 
-(defn like [x expr] ;; sql-like-like
+(defn like [x expr] ;; sql-like-like, match everything easily
   (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
     (.matches x (str ".*" expr ".*"))))
-        
+
+(defn rlike [x regular-expression]
+  (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
+    (.matches x regular-expression)))
+
 ;; pretty printing
 
 (defn- determine-column-sizes

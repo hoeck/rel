@@ -3,7 +3,9 @@
 
 (ns hoeck.rel.reflection
   (:use hoeck.rel
-        hoeck.library))
+        hoeck.library)
+  (:import (java.io File, FileInputStream)
+           (java.util.jar JarInputStream, JarEntry)))
 
 (let [primitive-types {'boolean Boolean/TYPE
                        'int     Integer/TYPE
@@ -27,34 +29,6 @@
     (class->sym (.getComponentType c))
     (symbol (.getName c))))
 
-(defn namespace-R 
-  "Returns a relation containing all available namespaces."
-  []
-  (make-relation 
-   (map #(list (ns-name %) %) (all-ns))
-   :fields [:name :namespace]))
-
-(defn ns-relation
-  "takes the relation created with `namespace-R' and a clojure.core/ns-* function and
-  a field name to where the function maps and produces a new relation."
-  [namespace-rel ns-func field-name]
-  (let [fields (list :ns-name :name field-name)]
-    (make-relation (mapcat (fn [tup] (map #(zipmap fields (cons (:name tup) %)) 
-                                          (ns-func (find-ns (:namespace tup)))))
-                           namespace-rel)
-                   :fields fields)))
-
-(defn file-relation
-  "Given one or more paths, returns a relation of all files below this path
-  using `clojure.core/file-seq'."
-  [path-seq]
-  (make-relation (map (fn [f] {:name (.getName f)
-                               :path (.getParent f)
-                               :size (.length f)})
-                      (filter #(not (.isDirectory %)) 
-                              (mapcat #(file-seq (java.io.File. %)) path-seq)))
-                 :fields [:name :path :size]))
-
 (let [modif (make-relation [[:abstract java.lang.reflect.Modifier/ABSTRACT]
                             [:final java.lang.reflect.Modifier/FINAL]
                             [:interface java.lang.reflect.Modifier/INTERFACE]
@@ -74,11 +48,102 @@
     ([id] (map #(-> (group-by modif :id) (get %) first :key)
                (filter #(not= 0 (bit-and id %)) (map #(bit-shift-left 1 %) (range 12)))))))
 
+
+;; Relation ctors:
+
+;; namespaces
+
+(defn make-namespace-R
+  "Returns a relation containing all available namespaces."
+  []
+  (make-relation 
+   (map #(list (ns-name %)) (all-ns))
+   :fields [:name]))
+
+(defn make-from-namespace-R
+  "takes the relation created with `namespace-R' and a clojure.core/ns-* function and
+  a field name to where the function maps and produces a new relation."
+  [namespace-rel ns-fn field-name]
+  (let [ns-names (field-seq namespace-rel :name)
+        fields (list :ns :name field-name)]
+    (make-relation (mapcat (fn [ns-name] 
+                             (map #(zipmap fields
+                                           (cons ns-name %))
+                                  (ns-fn (find-ns ns-name))))
+                           ns-names)
+                   :fields fields)))
+
+(defn make-ns-imports-R [ns-relation]
+  (make-from-namespace-R ns-relation
+                         #(map (fn [[k v]] [k (class->sym v)]) (ns-imports %))
+                         :class))
+
+(def make-ns-aliases-R #(make-from-namespace-R % ns-aliases :alias))
+(def make-ns-refers-R #(make-from-namespace-R % ns-refers :varname))
+(def make-ns-interns-R #(make-from-namespace-R % ns-interns :varname))
+(def make-ns-publics-R #(make-from-namespace-R % ns-publics :varname))
+
+;; files
+
+(defn file-R
+  "Given one or more paths, returns a relation of all files below this path
+  using `clojure.core/file-seq'."
+  [path-seq]
+  (make-relation (map (fn [f] {:name (.getName f)
+                               :path (.getParent f)
+                               :time (.lastModified f)
+                               :directory (.isDirectory f)
+                               :size (.length f)})
+                      (mapcat #(file-seq (java.io.File. %)) path-seq))))
+
+(defn- read-files-from-jar
+  [filename]
+  (let [inp (JarInputStream. (FileInputStream. filename))
+        files (doall (take-while identity (repeatedly #(.getNextJarEntry inp))))]
+    (.close inp)
+    (map (fn [je] ;; java.util.jar.jarEntry
+           {:name (.getName je)
+            :size (.getSize je)
+            :compressed-size (.getCompressedSize je)
+            :time (.getTime je)
+            :comment (.getComment je)
+            :directory (.isDirectory je)})
+         files)))
+
+(defn jar-R
+  "Given a file-R, return a relation of all entries from the jars
+  of the file-R."
+  [file-R]
+  (make-relation (mapcat read-files-from-jar 
+                         (field-seq (project (select file-R (rlike ~name ".*\\.jar$"))
+                                             [(str ~path java.io.File/separator ~name) :filename]) :filename))))
+
+(defn- path->package [classpaths path]
+  (if (and path (string? path))
+    (let [cp (first (filter #(.startsWith path %) classpaths))]
+      (if cp (.replace (.substring path (count cp)) File/separatorChar \.)))))
+
+(defn- without-dotclass [s]
+  (println "called without-dotclass:" s)
+  ;(.substring s 0 (- (count s) 4))
+  "")
+
+(defn find-classes-from-files
+  [file-relation]
+  (let [classfiles (select file-relation (rlike ~name ".*\\.class$"))
+        cp (list-classpaths)
+        classnames (project classfiles [(str (path->package cp ~path) "." (without-dotclass ~name)) :class])]
+    ;;jarfiles (select file-relation (rlike ~name ".*\\.jar$"))]
+    classnames))
+
+;; classes
+
 (defn class-tuple
-  "Creates a tuple from a java.lang.Class object. "
+  "Creates a tuple from a java.lang.Class object."
   [c]
   {:name (class->sym c)
    :type (cond (.isEnum c) :enum
+               (.isInterface c) :interface
                (.isAnonymousClass c) :anonymous
                (.isLocalClass c) :local
                (.isPrimitive c) :primitive
@@ -86,11 +151,19 @@
                :else :class)
    :super (if-let [n (.getSuperclass c)]
             (class->sym n))})
-;;;; <------------------------------ YOU WERE HERE !!!!!!!!!!!
-; (defn add-class [classes c]
-;   (let [new-class (class-tuple c)
-;         sup (map class-tuple (supers c))]
-;     (reduce conj classes (conj sup new-class))))
+
+(defn find-initial-set-of-classes
+  "Given the ns-imports relation, return all classes and their
+superclasses/interfaces."
+  [ns-imports-R]
+  (let [classes (map sym->class (field-seq ns-imports-R :class))]
+    (reduce conj  
+            #{}
+            (concat classes (mapcat supers classes)))))
+
+
+
+    
 
 ; (defn make-classes [class-seq]
 ;   (make-relation (reduce add-class

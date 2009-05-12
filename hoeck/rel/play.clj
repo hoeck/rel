@@ -1,7 +1,16 @@
 
+(in-ns 'hoeck.rel.reflection)
 
 
+(let [nsR (make-namespace-R)
+      imports (make-ns-imports-R nsR)
+      ]
+  (count (find-initial-set-of-classes imports)))
 
+(time (doall (seq (make-ns-imports-R sssssss))))
+(time (doall (map ns-imports (all-ns))))
+
+(count )
 
 ;; repl setup
 (do
@@ -326,7 +335,6 @@ people
 
 
 
-"a,bc"
 
 
 
@@ -344,7 +352,13 @@ hoeck.value_mapped_map.ValueMappedMap
 false
 
 
-false
+(map #(zipmap (cons :a '(:key :value))
+              (cons :const %))
+      {:a 1, :b 2})
+({:value 1, :key :a, :a :const} {:value 2, :key :b, :a :const})
+
+
+
 
 
   r-tup)
@@ -491,3 +505,15 @@ Void/TYPE
 
 
 
+(in-ns 'hoeck.rel.reflection)
+
+
+(field-seq (project (select _fff (rlike ~name ".*\\.jar$"))
+                    [(str ~path java.io.File/separator ~name) :filename])
+           :filename)
+
+
+
+(fn ([] {:name (quote :NAMMMME), :type :user, :fields (quote (:path :name)), :expr (list (quote str) (path->package cp (clojure.core/unquote :path)) "." (without-dotclass (clojure.core/unquote :name)))})
+  ([tuple5808] 
+     (str (path->package cp (:path tuple5808)) "." (without-dotclass (:name tuple5808)))))
