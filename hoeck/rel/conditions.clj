@@ -127,9 +127,9 @@
   "Return the conditions metadata."
   [c] (~c))
 
-(defmacro condition-expr [condition-meta]
-  (binding [unquote (fn [~'field] (symbol "hoeck.rel.field" (name ~'field)))]
-    (~c)))
+(defmacro condition-meta-expr [c]
+  `(binding [unquote (fn [~'field] (symbol "hoeck.rel.field" (name ~'field)))]
+     ((:expr (~c)))))
 
 ;; some special conditions
 
