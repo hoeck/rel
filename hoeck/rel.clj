@@ -194,7 +194,7 @@ currently bound to *relations*"
 
 (defn like [x expr] ;; sql-like-like, match everything easily
   (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
-    (.matches x (str ".*" expr ".*"))))
+    (.matches (.toLowerCase x) (str ".*" expr ".*"))))
 
 (defn rlike [x regular-expression]
   (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
