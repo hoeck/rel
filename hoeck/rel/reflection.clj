@@ -85,7 +85,7 @@
 
 ;; files
 
-(defn file-R
+(defn make-file-R
   "Given one or more paths, returns a relation of all files below this path
   using `clojure.core/file-seq'."
   [path-seq]
@@ -102,7 +102,8 @@
         files (doall (take-while identity (repeatedly #(.getNextJarEntry inp))))]
     (.close inp)
     (map (fn [je] ;; java.util.jar.jarEntry
-           {:name (.getName je)
+           {:jar filename
+            :name (.getName je)
             :size (.getSize je)
             :compressed-size (.getCompressedSize je)
             :time (.getTime je)
@@ -110,31 +111,31 @@
             :directory (.isDirectory je)})
          files)))
 
-(defn jar-R
+(defn make-jar-R
   "Given a file-R, return a relation of all entries from the jars
   of the file-R."
   [file-R]
-  (make-relation (mapcat read-files-from-jar 
+  (make-relation (mapcat read-files-from-jar
                          (field-seq (project (select file-R (rlike ~name ".*\\.jar$"))
                                              [(str ~path java.io.File/separator ~name) :filename]) :filename))))
 
 (defn- path->package [classpaths path]
   (if (and path (string? path))
     (let [cp (first (filter #(.startsWith path %) classpaths))]
-      (if cp (.replace (.substring path (count cp)) File/separatorChar \.)))))
+      (if cp (.replace (.substring path (+ 1 (count cp))) File/separatorChar \.)))))
 
 (defn- without-dotclass [s]
-  (println "called without-dotclass:" s)
-  ;(.substring s 0 (- (count s) 4))
-  "")
+  (and s (string? s) (.substring s 0 (- (count s) 6))))
 
-(defn find-classes-from-files
+(defn classnames-from-files
   [file-relation]
   (let [classfiles (select file-relation (rlike ~name ".*\\.class$"))
-        cp (list-classpaths)
-        classnames (project classfiles [(str (path->package cp ~path) "." (without-dotclass ~name)) :class])]
-    ;;jarfiles (select file-relation (rlike ~name ".*\\.jar$"))]
-    classnames))
+        cp (list-classpaths)]
+    (project classfiles [(str (path->package cp ~path) "." (without-dotclass ~name)) :class])))
+
+(defn classnames-from-jars [jar-relation]
+  
+  )
 
 ;; classes
 
