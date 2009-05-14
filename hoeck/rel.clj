@@ -161,8 +161,21 @@ currently bound to *relations*"
        (apply multiarg-join (join-op (relation-or-lookup R) r (relation-or-lookup S) s) r more))))
 
 (def join (make-join-op-fn op/join))
+
+;; fixme:
 (def right-outer-join (make-join-op-fn (fn [R r S s] (union (op/join R r S s) R))))
+;; fixme:
 (def outer-join (make-join-op-fn (fn [R S r s] (union (join R r S s) (join S s R r) R S))))
+
+;; functional join:
+;; example: 
+;;       (let [R #{{:a 1} {:a 2}}]
+;;          (fjoin R #(take % (range 99)) :b)
+;;       -> #{{:a 1 :b 10}
+;;            {:a 2 :b 10}
+;;            {:a 2 :b 11}}
+;;       == (make-relation (mapcat #(assoc % :b (take (:a %) (range 10 20))) R) :fields [:a :b])
+;;       )
 
 ;; xproduct
 
@@ -188,10 +201,15 @@ currently bound to *relations*"
                         ([k] (gi (((op/index R) field) k) more-fields)))))))
 
 (defn field-seq
-  "Return a seq of field values from a relation."
-  [R field]
-  (map field (project* R [field])))
-
+  "Return a seq of field values from a relation.
+  When given more than one field, return values in vectors."
+  ([R field]
+     (map field R ;;(project* R [field])
+          ))
+  ([R field & more-fields]
+     (let [f (cons field more-fields)]
+       (map #(vec (map (partial get %)f)) R))))
+                      
 (defn like [x expr] ;; sql-like-like, match everything easily
   (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
     (.matches (.toLowerCase x) (str ".*" expr ".*"))))

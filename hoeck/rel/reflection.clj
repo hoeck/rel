@@ -17,13 +17,15 @@
                        'short   Short/TYPE
                        'void    Void/TYPE}] ;; or use nil for void??
   (defn sym->class 
-    "Converts a symbol to a java.lang.Class. Works for primitive types too."
+    "Converts a symbol or string to a java.lang.Class. Works for primitive types too.
+  Returns nil if class nymed by s doesn't exist.."
     [s]        
-    (or (primitive-types s)
-        (Class/forName (name s)))))
+    (or (primitive-types (symbol s))
+        (try (Class/forName (str s))
+             (catch Throwable e nil)))))
 
 (defn class->sym
-  "Converts a Class to a Symbol. For arrays, returns the compnent name."
+  "Converts a Class to a Symbol. For arrays, returns the component name."
   [c]
   (if (.isArray c)
     (class->sym (.getComponentType c))
@@ -97,12 +99,13 @@
                       (mapcat #(file-seq (java.io.File. %)) path-seq))))
 
 (defn- read-files-from-jar
-  [filename]
-  (let [inp (JarInputStream. (FileInputStream. filename))
+  [pathname filename]
+  (let [inp (JarInputStream. (FileInputStream. (str pathname File/separator filename)))
         files (doall (take-while identity (repeatedly #(.getNextJarEntry inp))))]
     (.close inp)
     (map (fn [je] ;; java.util.jar.jarEntry
-           {:jar filename
+           {:path pathname
+            :jar filename
             :name (.getName je)
             :size (.getSize je)
             :compressed-size (.getCompressedSize je)
@@ -115,27 +118,35 @@
   "Given a file-R, return a relation of all entries from the jars
   of the file-R."
   [file-R]
-  (make-relation (mapcat read-files-from-jar
-                         (field-seq (project (select file-R (rlike ~name ".*\\.jar$"))
-                                             [(str ~path java.io.File/separator ~name) :filename]) :filename))))
+  (make-relation (mapcat #(read-files-from-jar (:path %) (:name %))
+                         (select file-R (rlike ~name ".*\\.jar$")))))
 
-(defn- path->package [classpaths path]
+(defn- path->package
+  [classpaths path]
   (if (and path (string? path))
     (let [cp (first (filter #(.startsWith path %) classpaths))]
-      (if cp (.replace (.substring path (+ 1 (count cp))) File/separatorChar \.)))))
+      (if cp (.replace (let [s (.substring path (count cp))]
+                         (if (.startsWith s File/separator) 
+                           (.substring s 1 (count s))
+                           s))
+                       File/separatorChar \.)))))
 
 (defn- without-dotclass [s]
   (and s (string? s) (.substring s 0 (- (count s) 6))))
 
-(defn classnames-from-files
+(defn- classnames-from-files ;;;;; FIXME! <-------------------
   [file-relation]
   (let [classfiles (select file-relation (rlike ~name ".*\\.class$"))
         cp (list-classpaths)]
-    (project classfiles [(str (path->package cp ~path) "." (without-dotclass ~name)) :class])))
+    (filter sym->class (field-seq (project classfiles [(str (path->package cp ~path) "." (without-dotclass ~name)) :class]) :class))))
 
-(defn classnames-from-jars [jar-relation]
-  
-  )
+;; assume classpath inside the jar to be .;
+(defn- classnames-from-jars
+  [jar-R]
+  (let [cp (list-classpaths)]
+    (set (map (fn [tup] (symbol (.replace (without-dotclass (:name tup)) \/ \.)))
+              (select jar-R (and (not ~directory)
+                                 (rlike ~name ".*\\.class$")))))))
 
 ;; classes
 
@@ -153,18 +164,19 @@
    :super (if-let [n (.getSuperclass c)]
             (class->sym n))})
 
-(defn find-initial-set-of-classes
-  "Given the ns-imports relation, return all classes and their
-superclasses/interfaces."
+(defn- classnames-from-ns
+  "Given the ns-imports relation, return all mentioned classes."
   [ns-imports-R]
   (let [classes (map sym->class (field-seq ns-imports-R :class))]
     (reduce conj  
             #{}
             (concat classes (mapcat supers classes)))))
 
-
-
-    
+(defn- find-classnames
+  [ns-imports-R, file-R, jar-R]
+  (clojure.set/union (classnames-from-ns ns-imports-R)
+                     (classnames-from-files file-R)
+                     (classnames-from-jars jar-R)))
 
 ; (defn make-classes [class-seq]
 ;   (make-relation (reduce add-class
@@ -174,7 +186,7 @@ superclasses/interfaces."
 (defn class-interfaces [c]
   (map (fn [i] {:interface (symbol (.getName i))
                 :class (symbol (.getName c))})
-       (filter #(.isInterface %) (supers c))))
+       (seq (.getInterfaces c))))
 
 (defn interfaces [class-relation]
   (make-relation (set (mapcat #(-> (sym->class %) class-interfaces) (field-seq class-relation :name)))))
@@ -228,9 +240,10 @@ superclasses/interfaces."
 
 
 (defn build-reflection-relations 
-  ([] (build-reflection-relations nil))
-  ([classes]
-     (let [namespace-rel (namespace-R)
+  ([& opts]
+     (let [opts (as-keyargs opts {:files (concat (list-classpaths) (list-bootclasspaths))})
+           
+           namespace-rel (namespace-R)
            imports (ns-relation namespace-rel (fn [ns] (into {} (map #(vector (key %) (symbol (.getName (val %)))) (ns-imports ns)))) :import)
            classes (make-classes (concat (field-seq imports :import) classes))
            methods (method-relation classes)]
@@ -283,8 +296,10 @@ superclasses/interfaces."
 (with-relations (select :implements (like ~interface 'IFn)))
 
 
-(missing-classes? (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations))))))
-))))
-true
+(missing-classes? (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations))))))))))
+
+)
+
+
 
 
