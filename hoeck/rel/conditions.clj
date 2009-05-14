@@ -114,7 +114,7 @@
              ;; expr is not working, the condition-function-ctor and the
              ;; condition-function are working anyway.
              ;; this is actually function metadata and will be moved there if that finally gets implemented
-             {:expr ~(quote-condition-expression expr),
+             {:expr (fn [] ~(quote-condition-expression expr)),;; wrap in a fn, so that they are not 'accidentially' computed when accessing the condition-metatdata
               :fields '~fields
               :type :user
               :name '~(or condition-name 
@@ -123,10 +123,13 @@
           ([~tuple-sym]
              ~fn-expr)))))
 
-(defmacro condition-meta [c]
-  `(binding [unquote (fn [~'field] (symbol "hoeck.rel.field" (name ~'field)))]
-     (~c)))
+(defmacro condition-meta
+  "Return the conditions metadata."
+  [c] (~c))
 
+(defmacro condition-expr [condition-meta]
+  (binding [unquote (fn [~'field] (symbol "hoeck.rel.field" (name ~'field)))]
+    (~c)))
 
 ;; some special conditions
 
