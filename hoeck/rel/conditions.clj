@@ -123,13 +123,25 @@
           ([~tuple-sym]
              ~fn-expr)))))
 
+(defn field-quote
+  "Makes a symbol in the hoeck.rel.field namespace for each symbol given.
+  Useful for examining condition-expressions (bind to unquote)."
+  [field]
+  (symbol "hoeck.rel.field" (name field)))
+
 (defmacro condition-meta
   "Return the conditions metadata."
-  [c] (~c))
+  [c]   
+  `(binding [unquote field-quote]
+     (~c)))
 
-(defmacro condition-meta-expr [c]
-  `(binding [unquote (fn [~'field] (symbol "hoeck.rel.field" (name ~'field)))]
-     ((:expr (~c)))))
+(defmacro condition-expr
+  "Return the expr of condition c with the unquote-fn bound to
+  cojure.core/unquote. The default unquote-fn is field-quote."
+  ([c] `(condition-expr ~c field-quote))
+  ([c unquote-fn] 
+     `(binding [unquote ~unquote-fn]
+        ((:expr (~c))))))
 
 ;; some special conditions
 
