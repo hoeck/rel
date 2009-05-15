@@ -122,25 +122,35 @@
                          (select file-R (rlike ~name ".*\\.jar$")))))
 
 (defn- path->package
+  ;; may return more than one possible packagename (if one classpath contains another)
   [classpaths path]
   (if (and path (string? path))
-    (let [cp (first (filter #(.startsWith path %) classpaths))]
-      (if cp (.replace (let [s (.substring path (count cp))]
-                         (if (.startsWith s File/separator) 
-                           (.substring s 1 (count s))
-                           s))
-                       File/separatorChar \.)))))
+    (let [possible-classpaths (filter #(.startsWith path %) classpaths)
+          extract-packagename (fn [cp] (.replace (let [s (.substring path (count cp))]
+                                                   (if (.startsWith s File/separator)
+                                                     (.substring s 1 (count s))
+                                                     s))
+                                                 File/separatorChar 
+                                                 \.))]
+      (map extract-packagename possible-classpaths))))
 
-(defn- without-dotclass [s]
+(defn- without-dotclass
+  "removes the trailing \".class\" from a string."
+  [s]
   (and s (string? s) (.substring s 0 (- (count s) 6))))
 
-(defn- classnames-from-files ;;;;; FIXME! <-------------------
+(defn- classnames-from-files
+  "Given a file relation, "
   [file-relation]
   (let [classfiles (select file-relation (rlike ~name ".*\\.class$"))
         cp (list-classpaths)]
-    (filter sym->class (field-seq (project classfiles [(str (path->package cp ~path) "." (without-dotclass ~name)) :class]) :class))))
+    (pipe (project classfiles :path :name)
+          (mapcat (fn [tup]
+                    (map #(str % "." (without-dotclass (:name tup)))
+                         (path->package cp (:path tup)))))
+          (filter sym->class))))
 
-;; assume classpath inside the jar to be .;
+;; assume classpath inside the jar to be .; (ignore the MANIFESTs classpath-line)
 (defn- classnames-from-jars
   [jar-R]
   (let [cp (list-classpaths)]
@@ -150,7 +160,7 @@
 
 ;; classes
 
-(defn class-tuple
+(defn- class-tuple
   "Creates a tuple from a java.lang.Class object."
   [c]
   {:name (class->sym c)
@@ -178,20 +188,20 @@
                      (classnames-from-files file-R)
                      (classnames-from-jars jar-R)))
 
-; (defn make-classes [class-seq]
-;   (make-relation (reduce add-class
-;                          #{}
-;                          (map sym->class class-seq))))
+(defn make-class-R [class-seq]
+   (make-relation (reduce conj
+                          #{}
+                          (mapcat class-tuple (map sym->class class-seq)))))
 
-(defn class-interfaces [c]
+(defn- class-interfaces [c]
   (map (fn [i] {:interface (symbol (.getName i))
                 :class (symbol (.getName c))})
        (seq (.getInterfaces c))))
 
-(defn interfaces [class-relation]
+(defn make-interface-R [class-relation]
   (make-relation (set (mapcat #(-> (sym->class %) class-interfaces) (field-seq class-relation :name)))))
 
-(defn class-methods [class-symbol]
+(defn- class-methods [class-symbol]
   (map (fn [m] {:class class-symbol
                 :declaring-class (symbol (.getName (.getDeclaringClass m)))
                 :name (symbol (.getName m))
@@ -200,7 +210,7 @@
                 :returns-array (.isArray (.getReturnType m))})
        (seq (.getMethods (sym->class class-symbol)))))
 
-(defn method-relation [class-relation]
+(defn make-method-R [class-relation]
   (make-relation (set (mapcat class-methods (field-seq class-relation :name)))))
 
 (defn method-arguments [class-symbol]
@@ -212,18 +222,22 @@
                        (range (count (.getParameterTypes m)))))
           (.getDeclaredMethods (sym->class class-symbol))))
 
-(defn method-arguments-relation [method-relation]
+(defn make-method-arguments-R [method-relation]
   (make-relation (set (mapcat method-arguments (field-seq method-relation :class)))))
 
-(defn method-and-class-modifiers [class-relation]
-  (let [modifier-seq (fn [name, mod-id] 
-                       (map (fn [m] {:name name
-                                     :modifier m})
-                            (modifiers mod-id)))]
-    (make-relation (set (mapcat (fn [c] (concat (mapcat (fn [m] (modifier-seq (symbol (.getName m)) (.getModifiers m)))
-                                                        (.getDeclaredMethods c))
-                                                (modifier-seq (symbol (.getName c)) (.getModifiers c))))
-                                (map sym->class (field-seq class-relation :name)))))))
+
+(defn- modifier-seq [name, mod-id]
+  (map (fn [m] {:name name
+                :modifier m})
+       (modifiers mod-id)))
+
+(defn make-class-modifier-R [class-rel]
+  (make-relation (mapcat (fn [c] (modifier-seq (:name c) (.getModifiers m)))
+                         (project class-relation [(sym->class ~name) :name)))))
+
+;(defn make-method-modifier-R [method-rel]
+;   (make-relation (mapcat (fn [c] (modifier-seq (:name c) (.getModifiers m)))
+;                          (project method-rel [(sym->class ~name) :name)))))
 
 (defn find-more-classes 
   "Look in all reflection relations for not-yet seen classses,
@@ -242,23 +256,43 @@
 (defn build-reflection-relations 
   ([& opts]
      (let [opts (as-keyargs opts {:files (concat (list-classpaths) (list-bootclasspaths))})
+
+           ;; namespace relations
+           ns-rel (make-namespace-R)
+           imports-rel (make-ns-imports-R ns-rel)
+           aliases-rel (make-ns-aliases-R ns-rel)
+           refers-rel (make-ns-refers-R ns-rel)
+           interns-rel (make-ns-interns-R ns-rel)
+           publics-rel (make-ns-publics-R ns-rel)
            
-           namespace-rel (namespace-R)
-           imports (ns-relation namespace-rel (fn [ns] (into {} (map #(vector (key %) (symbol (.getName (val %)))) (ns-imports ns)))) :import)
-           classes (make-classes (concat (field-seq imports :import) classes))
-           methods (method-relation classes)]
-       {:namespaces namespace-rel
-        :aliases (ns-relation namespace-rel ns-aliases :alias)
-        :imports imports
-        :refers (ns-relation namespace-rel ns-refers :varname)
-        :interns (ns-relation namespace-rel ns-interns :varname)
-        :publics (ns-relation namespace-rel ns-publics :varname)
-        :files (file-relation (list-classpaths))
-        :classes classes
-        :implements (interfaces classes)
-        :methods methods
-        :method-args (method-arguments-relation methods)
-        :modifiers (method-and-class-modifiers classes)})))
+           ;; files
+           file-rel (make-file-R (:files opts))
+           jar-rel (make-jar-R file-rel)
+           
+           ;; java reflection
+           classnames (find-classnames imports-rel file-rel jar-rel)
+           class-rel (make-class-R classnames)
+           method-rel (make-method-R class-rel)
+           method-args-rel (make-method-arguments-R method-rel)
+           interfaces-rel (make-interface-R class-rel)
+           class-modifiers-rel (make-class-modifier-R class-rel)]
+
+       {:namespace ns-rel
+        :imports imports-rel
+        :aliases aliases-rel
+        :refers refers-rel
+        :interns interns-rel
+        :publics publics-rel
+        
+        :files file-rel
+        :jars jar-rel
+
+        :classes class-rel
+        :interfaces interfaces-rel
+        :method-rel method-rel
+        :method-args method-args-rel
+        :class-modifiers class-modifiers-rel
+        :method-modifiers nil})))
 
 (defmacro with-relations [& body]
   `(binding [*relations* (merge *relations* (build-reflection-relations))]
