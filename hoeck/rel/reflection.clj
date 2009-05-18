@@ -56,10 +56,10 @@
 ;; namespaces
 
 (defn make-namespace-R
-  "Returns a relation containing all available namespaces."
-  []
+  "Returns a relation containing all namespaces in ns-seq."
+  [ns-seq]
   (make-relation 
-   (map #(list (ns-name %)) (all-ns))
+   (map #(list (ns-name %)) ns-seq)
    :fields [:name]))
 
 (defn make-from-namespace-R
@@ -100,6 +100,7 @@
 
 (defn- read-files-from-jar
   [pathname filename]
+  (def _xxx [pathname, filename])
   (let [inp (JarInputStream. (FileInputStream. (str pathname File/separator filename)))
         files (doall (take-while identity (repeatedly #(.getNextJarEntry inp))))]
     (.close inp)
@@ -232,12 +233,18 @@
        (modifiers mod-id)))
 
 (defn make-class-modifier-R [class-rel]
-  (make-relation (mapcat (fn [c] (modifier-seq (:name c) (.getModifiers m)))
-                         (project class-relation [(sym->class ~name) :name)))))
+  (make-relation (mapcat (fn [c] (modifier-seq (:name c) (.getModifiers c)))
+                         (project class-rel [(sym->class ~name) :name]))))
 
-;(defn make-method-modifier-R [method-rel]
-;   (make-relation (mapcat (fn [c] (modifier-seq (:name c) (.getModifiers m)))
-;                          (project method-rel [(sym->class ~name) :name)))))
+(defn make-method-modifier-R [method-rel]
+   (make-relation (mapcat (fn [tup] (map (fn [m] (map #(assoc %
+                                                         :class
+                                                         (:class tup))
+                                                      (modifier-seq (symbol (.getName m)) (.getModifiers m))))
+                                         (.getMethods (:the-class tup))))
+                          (project method-rel
+                                   :class
+                                   [(sym->class ~name) :the-class]))))
 
 (defn find-more-classes 
   "Look in all reflection relations for not-yet seen classses,
@@ -255,10 +262,12 @@
 
 (defn build-reflection-relations 
   ([& opts]
-     (let [opts (as-keyargs opts {:files (concat (list-classpaths) (list-bootclasspaths))})
+     (let [opts (as-keyargs opts {:files (concat (list-classpaths) (list-bootclasspaths))
+                                  :filename-filter-regex nil
+                                  :namespaces (all-ns)})
 
            ;; namespace relations
-           ns-rel (make-namespace-R)
+           ns-rel (make-namespace-R (:namespaces opts))
            imports-rel (make-ns-imports-R ns-rel)
            aliases-rel (make-ns-aliases-R ns-rel)
            refers-rel (make-ns-refers-R ns-rel)
@@ -266,7 +275,10 @@
            publics-rel (make-ns-publics-R ns-rel)
            
            ;; files
-           file-rel (make-file-R (:files opts))
+           file-rel (let [fr (make-file-R (:files opts))]
+                      (if-let [rx (:filename-filter-regex opts)]
+                        (select fr (rlike ~name rx))
+                        fr))
            jar-rel (make-jar-R file-rel)
            
            ;; java reflection
@@ -275,7 +287,9 @@
            method-rel (make-method-R class-rel)
            method-args-rel (make-method-arguments-R method-rel)
            interfaces-rel (make-interface-R class-rel)
-           class-modifiers-rel (make-class-modifier-R class-rel)]
+           class-modifiers-rel (make-class-modifier-R class-rel)
+           method-modifiers-rel (make-method-modifier-R method-rel)]
+       
 
        {:namespace ns-rel
         :imports imports-rel
@@ -292,7 +306,7 @@
         :method-rel method-rel
         :method-args method-args-rel
         :class-modifiers class-modifiers-rel
-        :method-modifiers nil})))
+        :method-modifiers method-modifiers-rel})))
 
 (defmacro with-relations [& body]
   `(binding [*relations* (merge *relations* (build-reflection-relations))]
