@@ -122,12 +122,12 @@
   [S & opts]
   (let [o (apply hash-map opts)
         fields (or (:fields o) (if (map? (first S)) (keys (first S))) (throw (Exception. "no fieldsnames supplied")))
-        S-seq (cond (map? (first S)) S ;; seq of hashmaps as tuples
-                     :else (map #(zipmap fields %) S));; seq of seqs
+        S-seq (cond (map? (first S)) S;; seq of hashmaps as tuples
+                    :else (map #(zipmap fields %) S));; seq of seqs
         S-set (delay (set S-seq))
         R (Relation. {:fields fields
                       :relation-tag :clojure}
-                     {'seq (fn [_] S-seq)
+                     {'seq (fn [_] (seq S-seq))
                       'count (fn [_] (count S))
                       'get (fn [_ k] ((force S-set) k))})]
     (vary-meta R assoc :index (make-index R fields))))
@@ -192,7 +192,7 @@
         ;;  |
         ;;  `remove-all non-projected
 
-        seq-fn (fn seq-fn [_] (distinct (map project-tuple R)))
+        seq-fn (fn seq-fn [_] (seq (distinct (map project-tuple R))))
         count-fn (fn count-fn [this] (count (seq this)))
         get-fn (fn get-fn [this tup] (first (index-lookup new-index tup)))]
     (Relation. (merge (meta R) {:fields field-names
@@ -213,7 +213,7 @@
                                  new-field 
                                  (set-index (map project-tuple R) new-field))
 
-           seq-fn (fn [this] (distinct (map project-tuple R)))
+           seq-fn (fn [this] (seq (distinct (map project-tuple R))))
            count-fn (fn [this] (count (seq this)))
            get-fn (fn [this tup] (first (index-lookup new-index tup)))]
        (Relation. (merge ^R {:fields (concat (fields R) new-field)
@@ -263,7 +263,7 @@
 
 (defmethod select :clojure [R expr]
   (let [new-index (filter-index expr (index R))
-        seq-fn (fn [_] (distinct (filter expr R)))
+        seq-fn (fn [_] (seq (distinct (filter expr R))))
         get-fn (fn [_ k] (first (index-lookup new-index k)))
         count-fn (fn [_] (count (seq-fn _)))]
     (Relation. (merge (meta R) {:index new-index})
@@ -331,7 +331,7 @@
     (Relation. (merge ^S ^R
                       {:fields (concat (fields R) (filter #(not= s %) (fields S))), 
                        :index new-index})
-               {'seq (fn [_] (filter identity (mapcat join-tuple R)))
+               {'seq (fn [_] (seq (filter identity (mapcat join-tuple R))))
                 'count (fn [_] (count (seq _)))
                 'get (fn [_ k] (first (index-lookup new-index k)))})))
 
@@ -346,7 +346,7 @@
     (Relation. (merge ^S ^R {:fields (concat (fields R) (fields S))
                              :index (lazy-merge (map-index (fn [tuples] (set (mapcat cross-tuple tuples))) (index R))
                                                 (map-index (fn [tuples] (set (mapcat #(map (partial merge %) R) tuples))) (index S)))})
-               {'seq (fn [_] (mapcat cross-tuple R))
+               {'seq (fn [_] (seq (mapcat cross-tuple R)))
                 'count (fn [_] (* (count R) (count S)))
                 'get (fn [_ tup] (and (R (select-keys tup (fields R)))
                                       (S (select-keys tup (fields S)))))})))
@@ -388,19 +388,19 @@
 (def-set-operator union ;; given 2 relations R and S
   (fn ([] (distinct (concat (keys r) (keys s))))
       ([k] (clojure.set/union (get r k) (get s k))))
-  (fn [_] (lazy-cat R (filter (complement R) S))) ;; seq
+  (fn [_] (seq (lazy-cat R (filter (complement R) S))));; seq
   (fn [_ k] (or (R k) (S k)))) ;; get
   
 (def-set-operator difference
   (fn ([] (distinct (concat (keys r) (keys s))))
       ([k] (clojure.set/difference (get r k) (get s k))))
-  (fn [_] (filter (complement S) R)) ;; seq
+  (fn [_] (seq (filter (complement S) R)));; seq
   (fn [_ k] (and (not (S k)) (R k)))) ;; get
 
 (def-set-operator intersection
   (fn ([] (distinct (concat (keys r) (keys s))))
       ([k] (clojure.set/intersection (get r k) (get s k))))
-  (fn [_] (distinct (lazy-cat (filter S R) (filter R S)))) ;; seq
+  (fn [_] (seq (distinct (lazy-cat (filter S R) (filter R S)))));; seq
   (fn [_ k] (and (S k) (R k)))) ;; get
 
 (deftest set-operator-test
@@ -439,8 +439,8 @@
 (defmethod order-by :clojure
   [R field <-or->]
   (Relation. ^R ;; order the index sets??
-             {'seq (fn [_] (if (= <-or-> '<) 
-                             (sort-by field R)
-                             (sort-by field #(* -1 (.compareTo %1 %2)) R)))
+             {'seq (fn [_] (seq (if (= <-or-> '<) 
+                                  (sort-by field R)
+                                  (sort-by field #(* -1 (.compareTo %1 %2)) R))))
               'get (fn [_ k] (R k))
               'count (fn [_] (count R))}))
