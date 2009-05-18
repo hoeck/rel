@@ -222,7 +222,8 @@
                    'count count-fn
                    'get get-fn})))
   ([R expr & exprs]
-     (project-expression (apply project-expression R exprs) expr)))
+     ;; evaluate from left to right
+     (apply project-expression (project-expression R expr) exprs)))
 
 ;; example;
 ;;(project-expression (make-relation testdata/people) (condition (* ~id 10)) (condition (- ~id 100)) (condition (+ ~id 1000)))
