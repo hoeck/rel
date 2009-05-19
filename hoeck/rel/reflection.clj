@@ -47,8 +47,9 @@
   (defn modifiers
     "Returns a seq of modifiers from a class/method/field/constructor (reflection) object."
     ([] modif)
-    ([id] (map #(-> (group-by modif :id) (get %) first :key)
-               (filter #(not= 0 (bit-and id %)) (map #(bit-shift-left 1 %) (range 12)))))))
+    ([id] (map 
+           #(-> (group-by modif :id) (get %) first :key)
+           (filter #(not= 0 (bit-and id %)) (map #(bit-shift-left 1 %) (range 12)))))))
 
 
 ;; Relation ctors:
@@ -140,16 +141,16 @@
   [s]
   (and s (string? s) (.substring s 0 (- (count s) 6))))
 
-(defn- classnames-from-files
+(defn- classes-from-files
   "Given a file relation, "
   [file-relation]
   (let [classfiles (select file-relation (rlike ~name ".*\\.class$"))
         cp (list-classpaths)]
     (pipe (project classfiles :path :name)
-          (mapcat (fn [tup]
-                    (map #(str % "." (without-dotclass (:name tup)))
-                         (path->package cp (:path tup)))))
-          (filter sym->class))))
+          (mapcat (fn [tup] (map #(str % "." (without-dotclass (:name tup)))
+                                 (path->package cp (:path tup)))))
+          (map sym->class)
+          (remove nil?))))
 
 ;; assume classpath inside the jar to be .; (ignore the MANIFESTs classpath-line)
 (defn- classnames-from-jars
@@ -178,10 +179,12 @@
 (defn- classnames-from-ns
   "Given the ns-imports relation, return all mentioned classes."
   [ns-imports-R]
-  (let [classes (map sym->class (field-seq ns-imports-R :class))]
+  (let [classes (field-seq ns-imports-R :class)]    
     (reduce conj  
             #{}
-            (concat classes (mapcat supers classes)))))
+            classes
+            ;(concat classes (mapcat supers classes))
+            )))
 
 (defn- find-classnames
   [ns-imports-R, file-R, jar-R]
@@ -190,9 +193,9 @@
                      (classnames-from-jars jar-R)))
 
 (defn make-class-R [class-seq]
-   (make-relation (reduce conj
-                          #{}
-                          (mapcat class-tuple (map sym->class class-seq)))))
+  (make-relation (reduce conj
+                         #{}
+                         (map class-tuple class-seq))))
 
 (defn- class-interfaces [c]
   (map (fn [i] {:interface (symbol (.getName i))
@@ -233,18 +236,18 @@
        (modifiers mod-id)))
 
 (defn make-class-modifier-R [class-rel]
-  (make-relation (mapcat (fn [c] (modifier-seq (:name c) (.getModifiers c)))
-                         (project class-rel [(sym->class ~name) :name]))))
+  (make-relation (mapcat (fn [c] (modifier-seq (:name c) (.getModifiers (:class c))))
+                         (project class-rel :name [(sym->class ~name) :class]))))
 
 (defn make-method-modifier-R [method-rel]
-   (make-relation (mapcat (fn [tup] (map (fn [m] (map #(assoc %
-                                                         :class
-                                                         (:class tup))
-                                                      (modifier-seq (symbol (.getName m)) (.getModifiers m))))
-                                         (.getMethods (:the-class tup))))
+   (make-relation (mapcat (fn [tup] (mapcat (fn [m] (map #(assoc %
+                                                            :class
+                                                            (:class tup))
+                                                         (modifier-seq (symbol (.getName m)) (.getModifiers m))))
+                                            (.getMethods (:the-class tup))))
                           (project method-rel
                                    :class
-                                   [(sym->class ~name) :the-class]))))
+                                   [(sym->class ~class) :the-class]))))
 
 (defn find-more-classes 
   "Look in all reflection relations for not-yet seen classses,
@@ -283,7 +286,7 @@
            
            ;; java reflection
            classnames (find-classnames imports-rel file-rel jar-rel)
-           class-rel (make-class-R classnames)
+           class-rel (make-class-R (map sym->class classnames))
            method-rel (make-method-R class-rel)
            method-args-rel (make-method-arguments-R method-rel)
            interfaces-rel (make-interface-R class-rel)
@@ -342,7 +345,6 @@
 
 ;; all classes implementing clojure.lang.IFn
 (with-relations (select :implements (like ~interface 'IFn)))
-
 
 (missing-classes? (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations))))))))))
 

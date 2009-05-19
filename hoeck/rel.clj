@@ -223,23 +223,24 @@ currently bound to *relations*"
 (defn- determine-column-sizes
   "Given a relation R, return a list of column-sizes according to opts."
   [R opts]
-  (let [max-col-widths (map #(pipe (project* R (list %))
-                                   (map pr-str)
-                                   (map count)
-                                   (map (partial + -1))
-                                   (reduce max))
-                            (fields R))
-        pretty-col-widths (pipe max-col-widths
-                                (map (partial min (:max-colsize opts 70)))
-                                (map (partial max (:min-colsize opts 0))))
-        small-fields-count (count (filter (partial <= (:min-colsize opts 0)) pretty-col-widths))
-        amount (if (< small-fields-count 0)
-                 (/ (- (reduce + pretty-col-widths) (:max-linesize opts 80))
-                    small-fields-count)
-                 0)]
-    (zipmap (fields R) (if (< 0 amount)
-                         (map #(max (:min-colsize opts) (- % amount)) pretty-col-widths)
-                         pretty-col-widths))))
+  (if (not (empty? R))
+    (let [max-col-widths (map #(pipe (project* R (list %))
+                                     (map pr-str)
+                                     (map count)
+                                     (map (partial + -1))
+                                     (reduce max))
+                              (fields R))
+          pretty-col-widths (pipe max-col-widths
+                                  (map (partial min (:max-colsize opts 70)))
+                                  (map (partial max (:min-colsize opts 0))))
+          small-fields-count (count (filter (partial <= (:min-colsize opts 0)) pretty-col-widths))
+          amount (if (< small-fields-count 0)
+                   (/ (- (reduce + pretty-col-widths) (:max-linesize opts 80))
+                      small-fields-count)
+                   0)]
+      (zipmap (fields R) (if (< 0 amount)
+                           (map #(max (:min-colsize opts) (- % amount)) pretty-col-widths)
+                           pretty-col-widths)))))
 
 (def *pretty-print-relation-opts* {:max-lines 30, :max-colsize 80, :max-linesize 200 :min-colsize 1})
 
@@ -248,7 +249,9 @@ currently bound to *relations*"
   to align fields correctly while not to exceeding :max-linesize and
   other opts."
   [R & opts]
-  (cond (= (count (fields R)) 1)
+  (cond (empty? R)
+          (print (set R))
+        (= (count (fields R)) 1)
           (print (set R))
         :else        
           (let [opts (as-keyargs opts (assoc *pretty-print-relation-opts* :writer *out*))
@@ -259,13 +262,14 @@ currently bound to *relations*"
                              (str (str-cut (str field-name " "
                                                 (str-align (str (pr-str v) (if comma "," ""))
                                                            (- s (count (str field-name)) (if comma 1 2))
-                                                           (if (or (string? v) (symbol? v) (keyword? v)) :left :right))
-                                                )
+                                                           (if (or (string? v) (symbol? v) (keyword? v)) :left :right)))
                                            s)
                                   (if comma " " ""))))
+                aaa (def _xx pr-field)
                 pr-tuple (fn [tuple] (str "{" (apply str (map (partial pr-field tuple)
                                                               (fields R)
                                                               (concat (drop 1 (fields R)) '(false)))) "}"))]
+            (def _xx [sizes opts  pr-field])
             (binding [*out* (:writer opts)]
               (print"#{")
               (print (pr-tuple (first R)))
