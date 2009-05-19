@@ -28,7 +28,7 @@
   (:gen-class :name hoeck.rel.Relation 
               :extends clojure.lang.APersistentSet
               :constructors {[clojure.lang.IPersistentMap clojure.lang.IPersistentMap] [clojure.lang.IPersistentMap clojure.lang.IPersistentMap]}
-              :factory createRelation
+              ;;:factory createRelation
               :state "state"
               :init init))
 
@@ -72,7 +72,7 @@
 (def-method disjoin 1)
 
 ;;;
-;(require 'hoeck.rel.Relation)
+;(require 'hoeck.rel.Relation :reload)
 ;(binding [*compile-path* "/home/timmy-turner/clojure/classes"] (compile 'hoeck.rel.Relation))
 ;(binding [*compile-path* "g:\\clojure\\classes"] (compile 'hoeck.rel.Relation))
 ;(def xxx (hoeck.rel.Relation. {} {}))

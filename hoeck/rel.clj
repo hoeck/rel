@@ -1,4 +1,4 @@
-;   Copyright (c) 2008, Erik Soehnel All rights reserved.
+; writer   Copyright (c) 2008, Erik Soehnel All rights reserved.
 ;
 ;   Redistribution and use in source and binary forms, with or without
 ;   modification, are permitted provided that the following conditions
@@ -242,7 +242,7 @@ currently bound to *relations*"
                            (map #(max (:min-colsize opts) (- % amount)) pretty-col-widths)
                            pretty-col-widths)))))
 
-(def *pretty-print-relation-opts* {:max-lines 30, :max-colsize 80, :max-linesize 200 :min-colsize 1})
+(def *pretty-print-relation-opts* {:max-lines 20, :max-colsize 80, :max-linesize 200 :min-colsize 1})
 
 (defn pretty-print-relation
   "Print a relation pretty readably to :writer (default *out*), try 
@@ -260,26 +260,27 @@ currently bound to *relations*"
                            (let [v (get tuple field-name)
                                  s (sizes field-name)]
                              (str (str-cut (str field-name " "
-                                                (str-align (str (pr-str v) (if comma "," ""))
+                                                (str-align (str (print-str v) (if comma "," ""))
                                                            (- s (count (str field-name)) (if comma 1 2))
                                                            (if (or (string? v) (symbol? v) (keyword? v)) :left :right)))
                                            s)
                                   (if comma " " ""))))
-                aaa (def _xx pr-field)
                 pr-tuple (fn [tuple] (str "{" (apply str (map (partial pr-field tuple)
                                                               (fields R)
                                                               (concat (drop 1 (fields R)) '(false)))) "}"))]
-            (def _xx [sizes opts  pr-field])
-            (binding [*out* (:writer opts)]
-              (print"#{")
-              (print (pr-tuple (first R)))
-              (doseq [r (next R)]
-                (println)
-                (print (str "  " (pr-tuple r))))
-              (println "}")))))
+            (let [w (:writer opts)]
+              (binding [*out* w]
+                (print "#{")
+                (print (pr-tuple (first R)))
+                (let [[tup-pr, tup-remain] (split-at (get opts :max-lines) (next R))]
+                  (doseq [r tup-pr]
+                    (println)
+                    (print (str "  " (pr-tuple r))))
+                  (when (seq tup-remain) (println) (print "  ...")))
+                (println "}"))))))
   
 ;; establish default pretty-printing of relations, needs awareness for *print-** variables
-(defmethod print-method  hoeck.rel.Relation
+(defmethod print-method hoeck.rel.Relation
   [R, w]
   (pretty-print-relation R :writer w))
 

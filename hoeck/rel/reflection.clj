@@ -54,6 +54,10 @@
 
 ;; Relation ctors:
 
+(defn make-classpath-R []
+  (make-relation (map list (concat (list-classpaths) (list-bootclasspaths)))
+                 :fields [:path]))
+
 ;; namespaces
 
 (defn make-namespace-R
@@ -123,7 +127,7 @@
   (make-relation (mapcat #(read-files-from-jar (:path %) (:name %))
                          (select file-R (rlike ~name ".*\\.jar$")))))
 
-(defn- path->package
+(defn- path->package ;; should be a functional join over the classpath-rel
   ;; may return more than one possible packagename (if one classpath contains another)
   [classpaths path]
   (if (and path (string? path))
@@ -141,24 +145,35 @@
   [s]
   (and s (string? s) (.substring s 0 (- (count s) 6))))
 
-(defn- classes-from-files
+(defn- classnames-from-files
   "Given a file relation, "
-  [file-relation]
+  [cp-relation file-relation]
   (let [classfiles (select file-relation (rlike ~name ".*\\.class$"))
-        cp (list-classpaths)]
+        cp (field-seq cp-relation :path)]
     (pipe (project classfiles :path :name)
           (mapcat (fn [tup] (map #(str % "." (without-dotclass (:name tup)))
                                  (path->package cp (:path tup)))))
-          (map sym->class)
-          (remove nil?))))
+          (filter sym->class))))
 
 ;; assume classpath inside the jar to be .; (ignore the MANIFESTs classpath-line)
+;; only include jars on the classpath
 (defn- classnames-from-jars
-  [jar-R]
-  (let [cp (list-classpaths)]
-    (set (map (fn [tup] (symbol (.replace (without-dotclass (:name tup)) \/ \.)))
-              (select jar-R (and (not ~directory)
-                                 (rlike ~name ".*\\.class$")))))))
+  [cp-R jar-R]
+  (set (map (fn [tup] (symbol (.replace (without-dotclass (:name tup)) \/ \.)))
+            (select (join (project* jar-R (cons (hoeck.rel.conditions/condition (str ~path File/separator ~jar) :full-path) (fields jar-R))) :full-path
+                          cp-R :path)
+                    (and (not ~directory)
+                         (rlike ~name ".*\\.class$"))))))
+
+(defn- classnames-from-ns
+  "Given the ns-imports relation, return all mentioned classes."
+  [ns-imports-R]
+  (let [classes (field-seq ns-imports-R :class)]
+    (reduce conj  
+            #{}
+            classes
+            ;(concat classes (mapcat supers classes))
+            )))
 
 ;; classes
 
@@ -168,29 +183,19 @@
   {:name (class->sym c)
    :type (cond (.isEnum c) :enum
                (.isInterface c) :interface
-               (.isAnonymousClass c) :anonymous
-               (.isLocalClass c) :local
-               (.isPrimitive c) :primitive
-               (.isSynthetic c) :synthetic
+               ;;(.isAnonymousClass c) :anonymous
+               ;(.isLocalClass c) :local
+               ;(.isPrimitive c) :primitive
+               ;.isSynthetic c) :synthetic
                :else :class)
    :super (if-let [n (.getSuperclass c)]
             (class->sym n))})
 
-(defn- classnames-from-ns
-  "Given the ns-imports relation, return all mentioned classes."
-  [ns-imports-R]
-  (let [classes (field-seq ns-imports-R :class)]    
-    (reduce conj  
-            #{}
-            classes
-            ;(concat classes (mapcat supers classes))
-            )))
-
 (defn- find-classnames
-  [ns-imports-R, file-R, jar-R]
+  [ns-imports-R, file-R, jar-R, classpath-R]
   (clojure.set/union (classnames-from-ns ns-imports-R)
-                     (classnames-from-files file-R)
-                     (classnames-from-jars jar-R)))
+                     (classnames-from-files classpath-R file-R)
+                     (classnames-from-jars classpath-R jar-R)))
 
 (defn make-class-R [class-seq]
   (make-relation (reduce conj
@@ -283,10 +288,11 @@
                         (select fr (rlike ~name rx))
                         fr))
            jar-rel (make-jar-R file-rel)
-           
+           classpath-rel (make-classpath-R)
+
            ;; java reflection
-           classnames (find-classnames imports-rel file-rel jar-rel)
-           class-rel (make-class-R (map sym->class classnames))
+           classnames (find-classnames imports-rel file-rel jar-rel classpath-rel)
+           class-rel (make-class-R (remove nil? (map sym->class classnames)))
            method-rel (make-method-R class-rel)
            method-args-rel (make-method-arguments-R method-rel)
            interfaces-rel (make-interface-R class-rel)
