@@ -5,12 +5,16 @@
   (:use hoeck.rel
         hoeck.library)
   (:import (java.io File, FileInputStream)
-           (java.util.jar JarInputStream, JarEntry)))
+           (java.util.jar JarInputStream, JarEntry)
+           (java.lang.instrument IllegalClassFormatException)))
 
 (defmacro try-ignore
+  "Ignore all classloading errors"
   [& body]
   `(try ~@body
-        (catch Throwable e# nil)))
+        (catch LinkageError e# nil)
+        (catch IllegalClassFormatException e# nil)
+        (catch ClassNotFoundException e# nil)))
 
 (let [primitive-types {'boolean Boolean/TYPE
                        'int     Integer/TYPE
@@ -234,7 +238,7 @@
                                     :position p})
                  (.getParameterTypes m)
                  (range (count (.getParameterTypes m)))))
-          (.getDeclaredMethods #^Class (sym->class class-symbol))))
+          (try-ignore (.getDeclaredMethods #^Class (sym->class class-symbol)))))
 
 (defn make-method-arguments-R [method-relation]
   (make-relation (set (mapcat method-arguments (field-seq method-relation :class)))))
@@ -245,14 +249,12 @@
        (modifiers mod-id)))
 
 (defn make-class-modifier-R [class-rel]
-  (make-relation (mapcat (fn [c] 
-                           (println "modifiers for " c)
+  (make-relation (mapcat (fn [c]
                            (modifier-seq (:name c) (.getModifiers #^Class (:class c))))
                          (project class-rel :name [(sym->class ~name) :class]))))
 
 (defn make-method-modifier-R [method-rel]
    (make-relation (mapcat (fn [tup] 
-                            (println "method-modifiers for " (:class tup) (:name tup))
                             (mapcat (fn [#^java.lang.reflect.Method m] 
                                               (map #(assoc %
                                                       :class
@@ -298,15 +300,23 @@
                         fr))
            jar-rel (make-jar-R file-rel)
            classpath-rel (make-classpath-R)
+           _ (println "files done")
 
            ;; java reflection
            classnames (find-classnames imports-rel file-rel jar-rel classpath-rel)
+           _ (println "classnames done")
            class-rel (make-class-R (remove nil? (map sym->class classnames)))
+           _ (println "classes done")
            method-rel (make-method-R class-rel)
+           _ (println "methods done")
            method-args-rel (make-method-arguments-R method-rel)
+           _ (println "method-args done")
            interfaces-rel (make-interface-R class-rel)
+           _ (println "interfaces done")
            class-modifiers-rel (make-class-modifier-R class-rel)
-           method-modifiers-rel (make-method-modifier-R method-rel)]
+           _ (println "class-modifiers done")
+           method-modifiers-rel (make-method-modifier-R method-rel)
+           _ (println "method-modifiers done")]
        
 
        {:namespace ns-rel
