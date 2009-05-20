@@ -7,6 +7,11 @@
   (:import (java.io File, FileInputStream)
            (java.util.jar JarInputStream, JarEntry)))
 
+(defmacro try-ignore
+  [& body]
+  `(try ~@body
+        (catch Throwable e# nil)))
+
 (let [primitive-types {'boolean Boolean/TYPE
                        'int     Integer/TYPE
                        'float   Float/TYPE
@@ -21,12 +26,11 @@
   Returns nil if class nymed by s doesn't exist.."
     [s]        
     (or (primitive-types (symbol s))
-        (try (Class/forName (str s))
-             (catch Throwable e nil)))))
+        (try-ignore (Class/forName (str s))))))
 
 (defn class->sym
   "Converts a Class to a Symbol. For arrays, returns the component name."
-  [c]
+  [#^Class c]
   (if (.isArray c)
     (class->sym (.getComponentType c))
     (symbol (.getName c))))
@@ -96,20 +100,19 @@
   "Given one or more paths, returns a relation of all files below this path
   using `clojure.core/file-seq'."
   [path-seq]
-  (make-relation (map (fn [f] {:name (.getName f)
+  (make-relation (map (fn [#^File f] {:name (.getName f)
                                :path (.getParent f)
                                :time (.lastModified f)
                                :directory (.isDirectory f)
                                :size (.length f)})
-                      (mapcat #(file-seq (java.io.File. %)) path-seq))))
+                      (mapcat (fn [#^String p] (file-seq (java.io.File. p))) path-seq))))
 
 (defn- read-files-from-jar
   [pathname filename]
-  (def _xxx [pathname, filename])
   (let [inp (JarInputStream. (FileInputStream. (str pathname File/separator filename)))
         files (doall (take-while identity (repeatedly #(.getNextJarEntry inp))))]
     (.close inp)
-    (map (fn [je] ;; java.util.jar.jarEntry
+    (map (fn [#^JarEntry je] ;; java.util.jar.jarEntry
            {:path pathname
             :jar filename
             :name (.getName je)
@@ -129,7 +132,7 @@
 
 (defn- path->package ;; should be a functional join over the classpath-rel
   ;; may return more than one possible packagename (if one classpath contains another)
-  [classpaths path]
+  [classpaths #^String path]
   (if (and path (string? path))
     (let [possible-classpaths (filter #(.startsWith path %) classpaths)
           extract-packagename (fn [cp] (.replace (let [s (.substring path (count cp))]
@@ -142,7 +145,7 @@
 
 (defn- without-dotclass
   "removes the trailing \".class\" from a string."
-  [s]
+  [#^String s]
   (and s (string? s) (.substring s 0 (- (count s) 6))))
 
 (defn- classnames-from-files
@@ -159,7 +162,7 @@
 ;; only include jars on the classpath
 (defn- classnames-from-jars
   [cp-R jar-R]
-  (set (map (fn [tup] (symbol (.replace (without-dotclass (:name tup)) \/ \.)))
+  (set (map (fn [tup] (symbol (.replace #^String (without-dotclass (:name tup)) \/ \.)))
             (select (join (project* jar-R (cons (hoeck.rel.conditions/condition (str ~path File/separator ~jar) :full-path) (fields jar-R))) :full-path
                           cp-R :path)
                     (and (not ~directory)
@@ -179,11 +182,11 @@
 
 (defn- class-tuple
   "Creates a tuple from a java.lang.Class object."
-  [c]
+  [#^Class c]
   {:name (class->sym c)
    :type (cond (.isEnum c) :enum
                (.isInterface c) :interface
-               ;;(.isAnonymousClass c) :anonymous
+               (try-ignore (.isAnonymousClass c)) :anonymous
                ;(.isLocalClass c) :local
                ;(.isPrimitive c) :primitive
                ;.isSynthetic c) :synthetic
@@ -202,8 +205,8 @@
                          #{}
                          (map class-tuple class-seq))))
 
-(defn- class-interfaces [c]
-  (map (fn [i] {:interface (symbol (.getName i))
+(defn- class-interfaces [#^Class c]
+  (map (fn [#^Class i] {:interface (symbol (.getName i))
                 :class (symbol (.getName c))})
        (seq (.getInterfaces c))))
 
@@ -211,29 +214,30 @@
   (make-relation (set (mapcat #(-> (sym->class %) class-interfaces) (field-seq class-relation :name)))))
 
 (defn- class-methods [class-symbol]
-  (map (fn [m] {:class class-symbol
-                :declaring-class (symbol (.getName (.getDeclaringClass m)))
-                :name (symbol (.getName m))
-                :arity (count (.getParameterTypes m))
-                :returntype (class->sym (.getReturnType m))
-                :returns-array (.isArray (.getReturnType m))})
-       (seq (.getMethods (sym->class class-symbol)))))
+  (map (fn [#^java.lang.reflect.Method m]
+         {:class class-symbol
+          :declaring-class (symbol (.getName (.getDeclaringClass m)))
+          :name (symbol (.getName m))
+          :arity (count (try-ignore (.getParameterTypes m)))
+          :returntype (try-ignore (class->sym (.getReturnType m)))
+          :returns-array (try-ignore (.isArray (.getReturnType m)))})
+       (seq (try-ignore (.getMethods #^Class (sym->class class-symbol))))))
 
 (defn make-method-R [class-relation]
   (make-relation (set (mapcat class-methods (field-seq class-relation :name)))))
 
 (defn method-arguments [class-symbol]
-  (mapcat (fn [m] (map (fn [c p] {:class class-symbol
-                                  :method (symbol (.getName m))
-                                  :type (symbol (.getName c))
-                                  :position p})
-                       (.getParameterTypes m)
-                       (range (count (.getParameterTypes m)))))
-          (.getDeclaredMethods (sym->class class-symbol))))
+  (mapcat (fn [#^java.lang.reflect.Method m] 
+            (map (fn [#^Class c p] {:class class-symbol
+                                    :method (symbol (.getName m))
+                                    :type (symbol (.getName c))
+                                    :position p})
+                 (.getParameterTypes m)
+                 (range (count (.getParameterTypes m)))))
+          (.getDeclaredMethods #^Class (sym->class class-symbol))))
 
 (defn make-method-arguments-R [method-relation]
   (make-relation (set (mapcat method-arguments (field-seq method-relation :class)))))
-
 
 (defn- modifier-seq [name, mod-id]
   (map (fn [m] {:name name
@@ -241,15 +245,20 @@
        (modifiers mod-id)))
 
 (defn make-class-modifier-R [class-rel]
-  (make-relation (mapcat (fn [c] (modifier-seq (:name c) (.getModifiers (:class c))))
+  (make-relation (mapcat (fn [c] 
+                           (println "modifiers for " c)
+                           (modifier-seq (:name c) (.getModifiers #^Class (:class c))))
                          (project class-rel :name [(sym->class ~name) :class]))))
 
 (defn make-method-modifier-R [method-rel]
-   (make-relation (mapcat (fn [tup] (mapcat (fn [m] (map #(assoc %
-                                                            :class
-                                                            (:class tup))
-                                                         (modifier-seq (symbol (.getName m)) (.getModifiers m))))
-                                            (.getMethods (:the-class tup))))
+   (make-relation (mapcat (fn [tup] 
+                            (println "method-modifiers for " (:class tup) (:name tup))
+                            (mapcat (fn [#^java.lang.reflect.Method m] 
+                                              (map #(assoc %
+                                                      :class
+                                                      (:class tup))
+                                                   (modifier-seq (symbol (.getName m)) (.getModifiers m))))
+                                            (.getMethods #^Class (:the-class tup))))
                           (project method-rel
                                    :class
                                    [(sym->class ~class) :the-class]))))
