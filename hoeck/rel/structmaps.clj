@@ -95,11 +95,14 @@
 
 ;; ctors
 
-(defmethod make-index clojure.lang.IPersistentSet [R fields & opts]
+(defmethod make-index ;clojure.lang.IPersistentSet
+  clojure.lang.Seqable
+  [R fields & opts]
   ;; lazy index
   (let [index-map (apply lazy-hash-map* (mapcat #(list %  (delay (set-index R %))) fields))]
     index-map))
 
+;; relation from set
 (defmethod make-relation clojure.lang.IPersistentSet
   [S & opts]
   (let [o (apply hash-map opts)
@@ -121,7 +124,7 @@
 (defmethod make-relation clojure.lang.Seqable
   [S & opts]
   (let [o (apply hash-map opts)
-        fields (or (:fields o) (if (map? (first S)) (keys (first S))) (throw (Exception. "no fieldsnames supplied")))
+        fields (or (:fields o) (if (map? (first S)) (keys (first S))) (throw (Exception. "no fieldnames supplied")))
         S-seq (cond (map? (first S)) S;; seq of hashmaps as tuples
                     :else (map #(zipmap fields %) S));; seq of seqs
         S-set (delay (set S-seq))
@@ -131,6 +134,35 @@
                       'count (fn [_] (count S))
                       'get (fn [_ k] ((force S-set) k))})]
     (vary-meta R assoc :index (make-index R fields))))
+
+;; relation from index,
+;; eg: (let [i {1 {:id 1 :name robert :city dresden}
+;;              2 {:id 2 :name diana  :city dresden}}]
+;;       (make-relation i :fields [:name :city] :key :id))
+;; -> #{{:id 1 :name robert :city dresden}
+;;      {:id 2 :name diana  :city dresden}}
+(defmethod make-relation clojure.lang.IPersistentMap [m & opts]
+  (let [opts (apply hash-map opts)
+        fields (:fields opts (keys (val (first m))))
+        tuple-seq (vals m)
+        index (assoc (make-index tuple-seq fields)
+                     (:key opts)
+                     (value-mapped-map (fn [t] #{t}) m))]
+    (Relation. {:relation-tag :clojure
+                :fields fields
+                :index index}
+               {'seq (fn seq-fn [_] (seq tuple-seq))
+                'count (fn count-fn [_] (count m))
+                'get (fn [_ tup] (index-lookup index tup))})))
+
+(deftest make-relation-from-index-test
+  (let [R-idx '{1 {:a 1 :x a :y :y}
+                3 {:a 3 :x b :y :y}}
+        R (make-relation R-idx :fields [:a :x :y] :key :a)
+        S (make-relation R-idx :key :a)]
+    (is (= (set (fields R)) #{:a :x :y}) "fields")
+    (is (= (set (fields S)) #{:a :x :y}) "autodetected fields")
+    (is (= (index R) (make-index R (fields R))) "index")))
 
 ;; test tools
 
