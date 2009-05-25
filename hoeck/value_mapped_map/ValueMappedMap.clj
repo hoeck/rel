@@ -18,8 +18,6 @@
      (clojure.lang SeqIterator IMapEntry IPersistentVector IObj MapEntry)
      (de.kotka.lazymap LazyMapEntry)))
 
-(library/eval-when (library/class-exists? 'hoeck.value_mapped_map.ValueMappedMap)
-
 ;; constructor
 (defn- -init
   ([f, m]
@@ -140,8 +138,6 @@
     1 (.valAt this (first ks))
     2 (.valAt this (first ks) (second ks))
     (throw (IllegalArgumentException. "Wrong number of args passed to: ValueMappedMap"))))
-
-)
 
 ;; +++ bootstrap +++
 ;; (require 'hoeck.value-mapped-map.ValueMappedMap :reload)

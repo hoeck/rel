@@ -25,12 +25,12 @@
                        'char    Character/TYPE
                        'short   Short/TYPE
                        'void    Void/TYPE}] ;; or use nil for void??
-  (defn sym->class 
-    "Converts a symbol or string to a java.lang.Class. Works for primitive types too.
-  Returns nil if class nymed by s doesn't exist.."
-    [s]        
-    (or (primitive-types (symbol s))
-        (try-ignore (Class/forName (str s))))))
+  (def sym->class 
+;;    "Converts a symbol or string to a java.lang.Class. Works for primitive types too.
+;;  Returns nil if class nymed by s doesn't exist.."
+       (memoize (fn [s]        
+                  (or (primitive-types (symbol s))
+                      (try-ignore (Class/forName (str s))))))))
 
 (defn class->sym
   "Converts a Class to a Symbol. For arrays, returns the component name."

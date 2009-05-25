@@ -10,8 +10,6 @@
   (:import
      (clojure.lang SeqIterator IMapEntry MapEntry IPersistentVector IObj)))
 
-(library/eval-when (library/class-exists? 'hoeck.magic_map.MagicMap)
-
 (defn- -init
   [prop-map]
   [[] prop-map])
@@ -126,7 +124,7 @@
      :map (.lazyAssoc (prop-map) k v)
      :set (disj (prop-set) k))))
 
-)
+
 
 ;; (require 'hoeck.magic-map.MagicMap :reload)
 ;; (binding [*compile-path* "/home/timmy-turner/clojure/classes"] (compile 'hoeck.magic-map.MagicMap))
