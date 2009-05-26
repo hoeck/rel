@@ -3,7 +3,8 @@
 
 (ns hoeck.rel.reflection
   (:use hoeck.rel
-        hoeck.library)
+        hoeck.library
+        hoeck.magic-map)
   (:import (java.io File, FileInputStream)
            (java.util.jar JarInputStream, JarEntry)
            (java.lang.instrument IllegalClassFormatException)))
@@ -32,12 +33,12 @@
                   (or (primitive-types (symbol s))
                       (try-ignore (Class/forName (str s))))))))
 
-(defn class->sym
-  "Converts a Class to a Symbol. For arrays, returns the component name."
-  [#^Class c]
-  (if (.isArray c)
-    (class->sym (.getComponentType c))
-    (symbol (.getName c))))
+(def class->sym
+;;  "Converts a Class to a Symbol. For arrays, returns the component name."
+  (memoize (fn [#^Class c]
+             (if (.isArray c)
+               (class->sym (.getComponentType c))
+               (symbol (.getName c))))))
 
 (let [modif (make-relation [[:abstract java.lang.reflect.Modifier/ABSTRACT]
                             [:final java.lang.reflect.Modifier/FINAL]
@@ -152,6 +153,8 @@
   [#^String s]
   (and s (string? s) (.substring s 0 (- (count s) 6))))
 
+;; classnames
+
 (defn- classnames-from-files
   "Given a file relation, "
   [cp-relation file-relation]
@@ -182,32 +185,34 @@
             ;(concat classes (mapcat supers classes))
             )))
 
-;; classes
-
-(defn- class-tuple
-  "Creates a tuple from a java.lang.Class object."
-  [#^Class c]
-  {:name (class->sym c)
-   :type (cond (.isEnum c) :enum
-               (.isInterface c) :interface
-               (try-ignore (.isAnonymousClass c)) :anonymous
-               ;(.isLocalClass c) :local
-               ;(.isPrimitive c) :primitive
-               ;.isSynthetic c) :synthetic
-               :else :class)
-   :super (if-let [n (.getSuperclass c)]
-            (class->sym n))})
-
 (defn- find-classnames
   [ns-imports-R, file-R, jar-R, classpath-R]
   (clojure.set/union (classnames-from-ns ns-imports-R)
                      (classnames-from-files classpath-R file-R)
                      (classnames-from-jars classpath-R jar-R)))
 
-(defn make-class-R [class-seq]
-  (make-relation (reduce conj
-                         #{}
-                         (map class-tuple class-seq))))
+;; classes
+
+(defn- class-tuple
+  "Creates a tuple from a java.lang.Class object."
+  [cname #^Class c]
+  {:name cname
+   :type (cond (.isEnum c) :enum
+               (.isInterface c) :interface
+               (try-ignore (.isAnonymousClass c)) :anonymous
+               ;(.isLocalClass c) :local
+               (.isPrimitive c) :primitive
+               ;.isSynthetic c) :synthetic
+               :else :class)
+   :super (if-let [n (.getSuperclass c)]
+            (class->sym n))})
+
+(defn make-class-R [classname-seq]
+  (let [lazy-class-index (magic-map (fn ([] classname-seq)
+                                        ([cname] (class-tuple cname (sym->class cname)))))]
+    (make-relation lazy-class-index
+                   :key :name
+                   :fields (keys (class-tuple 'String String)))))
 
 (defn- class-interfaces [#^Class c]
   (map (fn [#^Class i] {:interface (symbol (.getName i))
