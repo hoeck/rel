@@ -99,6 +99,7 @@
   clojure.lang.Seqable
   [R fields & opts]
   ;; lazy index
+  (def _ddd [R, fields])
   (let [index-map (apply lazy-hash-map* (mapcat #(list %  (delay (set-index R %))) fields))]
     index-map))
 
@@ -142,16 +143,17 @@
 ;; -> #{{:id 1 :name robert :city dresden}
 ;;      {:id 2 :name diana  :city dresden}}
 (defmethod make-relation clojure.lang.IPersistentMap [m & opts]
-  (let [opts (apply hash-map opts)
-        fields (:fields opts (keys (val (first m))))
-        tuple-seq (vals m)
+  (let [m (value-mapped-map (fn [e] (if (set? e) e #{e})) m) ;; index format
+        opts (apply hash-map opts)
+        tuple-seq (apply concat (vals m))
+        fields (:fields opts (keys (first tuple-seq)))
         index (assoc (make-index tuple-seq fields)
                      (:key opts)
-                     (value-mapped-map (fn [t] #{t}) m))]
+                     m)]
     (Relation. {:relation-tag :clojure
                 :fields fields
                 :index index}
-               {'seq (fn seq-fn [_] (seq tuple-seq))
+               {'seq (fn seq-fn [_] tuple-seq)
                 'count (fn count-fn [_] (count m))
                 'get (fn [_ tup] (index-lookup index tup))})))
 
