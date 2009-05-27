@@ -84,11 +84,11 @@
 
 (defn- -seq
   [this]
-  (concat (prop-map)
-          (map #(MapEntry. % ((prop-fn) %))
-               (filter #(not (or ((prop-set) %)
-                                 (contains? (prop-map) %)))
-                       ((prop-fn))))))
+  (seq (concat (prop-map)
+               (map #(MapEntry. % ((prop-fn) %))
+                    (filter #(not (or ((prop-set) %)
+                                      (contains? (prop-map) %)))
+                            ((prop-fn)))))))
 
 (defn- -cons
   [this o]

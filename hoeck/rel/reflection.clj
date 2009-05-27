@@ -13,6 +13,7 @@
   "Ignore all classloading errors"
   [& body]
   `(try ~@body
+        (catch NullPointerException e# nil)
         (catch LinkageError e# nil)
         (catch IllegalClassFormatException e# nil)
         (catch ClassNotFoundException e# nil)))
@@ -133,20 +134,24 @@
   of the file-R."
   [file-R]
   (make-relation (mapcat #(read-files-from-jar (:path %) (:name %))
-                         (select file-R (rlike ~name ".*\\.jar$")))))
+                         (select file-R (rlike ~name ".*\\.jar$")))
+                 :fields [:path :jar :name :size :compressed-size :time :comment :directory]))
 
-(defn- path->package ;; should be a functional join over the classpath-rel
-  ;; may return more than one possible packagename (if one classpath contains another)
-  [classpaths #^String path]
-  (if (and path (string? path))
-    (let [possible-classpaths (filter #(.startsWith path %) classpaths)
-          extract-packagename (fn [cp] (.replace (let [s (.substring path (count cp))]
-                                                   (if (.startsWith s File/separator)
-                                                     (.substring s 1 (count s))
-                                                     s))
-                                                 File/separatorChar 
-                                                 \.))]
-      (map extract-packagename possible-classpaths))))
+(defn- path->package
+  ([#^String path]
+     (.replace path File/separatorChar \.))
+  ([classpaths #^String path]
+     ;; should be a functional join over the classpath-rel
+     ;; may return more than one possible packagename (if one classpath contains another)
+     (if (and path (string? path))
+       (let [possible-classpaths (filter #(.startsWith path %) classpaths)
+             extract-packagename (fn [cp] (.replace (let [s (.substring path (count cp))]
+                                                      (if (.startsWith s File/separator)
+                                                        (.substring s 1 (count s))
+                                                        s))
+                                                    File/separatorChar 
+                                                    \.))]
+         (map extract-packagename possible-classpaths)))))
 
 (defn- without-dotclass
   "removes the trailing \".class\" from a string."
@@ -166,14 +171,11 @@
           (filter sym->class))))
 
 ;; assume classpath inside the jar to be .; (ignore the MANIFESTs classpath-line)
-;; only include jars on the classpath
-(defn- classnames-from-jars
-  [cp-R jar-R]
-  (set (map (fn [tup] (symbol (.replace #^String (without-dotclass (:name tup)) \/ \.)))
-            (select (join (project* jar-R (cons (hoeck.rel.conditions/condition (str ~path File/separator ~jar) :full-path) (fields jar-R))) :full-path
-                          cp-R :path)
-                    (and (not ~directory)
-                         (rlike ~name ".*\\.class$"))))))
+(defn- classnames-from-jars ;; assume jar-R contains only jars on the classpath
+  [jar-R]
+  (let [classfiles (field-seq (select jar-R (and (not ~directory) (rlike ~name ".*\\.class$")))
+                              :name)]
+    (map #(.replace #^String % \/ \.) classfiles)))
 
 (defn- classnames-from-ns
   "Given the ns-imports relation, return all mentioned classes."
@@ -189,7 +191,7 @@
   [ns-imports-R, file-R, jar-R, classpath-R]
   (clojure.set/union (classnames-from-ns ns-imports-R)
                      (classnames-from-files classpath-R file-R)
-                     (classnames-from-jars classpath-R jar-R)))
+                     (classnames-from-jars jar-R)))
 
 ;; classes
 
@@ -208,67 +210,81 @@
             (class->sym n))})
 
 (defn make-class-R [classname-seq]
-  (let [lazy-class-index (magic-map (fn ([] classname-seq)
-                                        ([cname] (class-tuple cname (sym->class cname)))))]
-    (make-relation lazy-class-index
-                   :key :name
-                   :fields (keys (class-tuple 'String String)))))
+  (make-relation (magic-map (fn ([] classname-seq)
+                                ([cname] (class-tuple cname (sym->class cname)))))
+                 :key :name
+                 :fields (keys (class-tuple 'String String))))
 
-(defn- class-interfaces [#^Class c]
+(defn- class-interfaces [cname]
   (map (fn [#^Class i] {:interface (symbol (.getName i))
-                :class (symbol (.getName c))})
-       (seq (.getInterfaces c))))
+                        :class cname})
+       (seq (.getInterfaces (sym->class cname)))))
 
-(defn make-interface-R [class-relation]
-  (make-relation (set (mapcat #(-> (sym->class %) class-interfaces) (field-seq class-relation :name)))))
+(defn make-interface-R [classname-seq]
+  (make-relation (magic-map (fn ([] (filter #(let [c (sym->class %)] (and c (not= 0 (count (.getInterfaces c)))))
+                                            classname-seq))
+                                ([cname] (set (class-interfaces cname)))))
+                 :key :class
+                 :fields [:interface :class]))
 
-(defn- class-methods [class-symbol]
+(defn- class-methods [cname]
   (map (fn [#^java.lang.reflect.Method m]
-         {:class class-symbol
+         {:class cname
           :declaring-class (symbol (.getName (.getDeclaringClass m)))
           :name (symbol (.getName m))
           :arity (count (try-ignore (.getParameterTypes m)))
           :returntype (try-ignore (class->sym (.getReturnType m)))
           :returns-array (try-ignore (.isArray (.getReturnType m)))})
-       (seq (try-ignore (.getMethods #^Class (sym->class class-symbol))))))
+       (seq (try-ignore (.getMethods #^Class (sym->class cname))))))
 
-(defn make-method-R [class-relation]
-  (make-relation (set (mapcat class-methods (field-seq class-relation :name)))))
+(defn make-method-R [classname-seq]
+  (def _xxx classname-seq)
+  (make-relation (magic-map (fn ([] (filter #(< 0 (count (try-ignore (.getMethods (sym->class %))))) classname-seq))
+                                ([cname] (set (class-methods cname)))))
+                 :key :cname
+                 :fields (keys (first (class-methods 'java.lang.Object)))))
 
-(defn method-arguments [class-symbol]
-  (mapcat (fn [#^java.lang.reflect.Method m] 
-            (map (fn [#^Class c p] {:class class-symbol
-                                    :method (symbol (.getName m))
-                                    :type (symbol (.getName c))
-                                    :position p})
-                 (.getParameterTypes m)
-                 (range (count (.getParameterTypes m)))))
-          (try-ignore (.getDeclaredMethods #^Class (sym->class class-symbol)))))
+(defn- method-args [cname]
+  (mapcat (fn [#^java.lang.reflect.Method m]
+            (let [m-args (.getParameterTypes m)
+                  m-args-count (count m-args)
+                  m-name (symbol (.getName m))]
+              (map (fn [#^Class c p] {:class cname
+                                      :method m-name
+                                      :arity m-args-count
+                                      :type (class->sym c)
+                                      :position p})
+                   m-args
+                   (range m-args-count))))
+          (try-ignore (.getDeclaredMethods #^Class (sym->class cname)))))
 
-(defn make-method-arguments-R [method-relation]
-  (make-relation (set (mapcat method-arguments (field-seq method-relation :class)))))
+(defn make-method-args-R [classnames]
+  (make-relation (magic-map (fn ([] classnames)
+                                ([cname] (set (method-args cname)))))
+                 :key :class
+                 :fields (keys (first (method-args 'java.lang.Object)))))
 
-(defn- modifier-seq [name, mod-id]
-  (map (fn [m] {:name name
-                :modifier m})
-       (modifiers mod-id)))
+; (defn- modifier-seq [name, mod-id]
+;   (map (fn [m] {:name name
+;                 :modifier m})
+;        (modifiers mod-id)))
 
-(defn make-class-modifier-R [class-rel]
-  (make-relation (mapcat (fn [c]
-                           (modifier-seq (:name c) (.getModifiers #^Class (:class c))))
-                         (project class-rel :name [(sym->class ~name) :class]))))
+; (defn make-class-modifier-R [class-rel]
+;   (make-relation (mapcat (fn [c]
+;                            (modifier-seq (:name c) (.getModifiers #^Class (:class c))))
+;                          (project class-rel :name [(sym->class ~name) :class]))))
 
-(defn make-method-modifier-R [method-rel]
-   (make-relation (mapcat (fn [tup] 
-                            (mapcat (fn [#^java.lang.reflect.Method m] 
-                                              (map #(assoc %
-                                                      :class
-                                                      (:class tup))
-                                                   (modifier-seq (symbol (.getName m)) (.getModifiers m))))
-                                            (.getMethods #^Class (:the-class tup))))
-                          (project method-rel
-                                   :class
-                                   [(sym->class ~class) :the-class]))))
+; (defn make-method-modifier-R [method-rel]
+;    (make-relation (mapcat (fn [tup] 
+;                             (mapcat (fn [#^java.lang.reflect.Method m] 
+;                                               (map #(assoc %
+;                                                       :class
+;                                                       (:class tup))
+;                                                    (modifier-seq (symbol (.getName m)) (.getModifiers m))))
+;                                             (.getMethods #^Class (:the-class tup))))
+;                           (project method-rel
+;                                    :class
+;                                    [(sym->class ~class) :the-class]))))
 
 (defn find-more-classes 
   "Look in all reflection relations for not-yet seen classses,
@@ -284,13 +300,13 @@
                 :class)))
 
 
-(defn build-reflection-relations 
+(defn make-reflection-relations 
   ([& opts]
      (let [opts (as-keyargs opts {:files (concat (list-classpaths) (list-bootclasspaths))
                                   :filename-filter-regex nil
                                   :namespaces (all-ns)})
 
-           ;; namespace relations
+           ;; namespace relations (clojure)
            ns-rel (make-namespace-R (:namespaces opts))
            imports-rel (make-ns-imports-R ns-rel)
            aliases-rel (make-ns-aliases-R ns-rel)
@@ -299,30 +315,33 @@
            publics-rel (make-ns-publics-R ns-rel)
            
            ;; files
+           classpath-rel (make-classpath-R)
            file-rel (let [fr (make-file-R (:files opts))]
                       (if-let [rx (:filename-filter-regex opts)]
                         (select fr (rlike ~name rx))
                         fr))
-           jar-rel (make-jar-R file-rel)
-           classpath-rel (make-classpath-R)
+           jar-rel (make-jar-R (select file-rel
+                                       (and (rlike ~name ".*\\.jar$") ;; be shure to catch only jars on the classpath
+                                            (contains? classpath-rel {:path (str ~path File/separator ~name)}))))
+
            _ (println "files done")
 
            ;; java reflection
            classnames (find-classnames imports-rel file-rel jar-rel classpath-rel)
            _ (println "classnames done")
-           class-rel (make-class-R (remove nil? (map sym->class classnames)))
+           class-rel (make-class-R classnames)
            _ (println "classes done")
-           method-rel (make-method-R class-rel)
+           method-rel (make-method-R classnames)
            _ (println "methods done")
-           method-args-rel (make-method-arguments-R method-rel)
+           method-args-rel (make-method-args-R classnames)
            _ (println "method-args done")
-           interfaces-rel (make-interface-R class-rel)
+           interfaces-rel (make-interface-R classnames)
            _ (println "interfaces done")
-           class-modifiers-rel (make-class-modifier-R class-rel)
-           _ (println "class-modifiers done")
-           method-modifiers-rel (make-method-modifier-R method-rel)
-           _ (println "method-modifiers done")]
-       
+;            class-modifiers-rel (make-class-modifier-R class-rel)
+;            _ (println "class-modifiers done")
+;            method-modifiers-rel (make-method-modifier-R method-rel)
+;            _ (println "method-modifiers done")
+           ]
 
        {:namespace ns-rel
         :imports imports-rel
@@ -338,8 +357,9 @@
         :interfaces interfaces-rel
         :method-rel method-rel
         :method-args method-args-rel
-        :class-modifiers class-modifiers-rel
-        :method-modifiers method-modifiers-rel})))
+;         :class-modifiers class-modifiers-rel
+;         :method-modifiers method-modifiers-rel
+        })))
 
 (defmacro with-relations [& body]
   `(binding [*relations* (merge *relations* (build-reflection-relations))]

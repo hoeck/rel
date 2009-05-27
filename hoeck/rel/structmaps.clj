@@ -153,8 +153,8 @@
     (Relation. {:relation-tag :clojure
                 :fields fields
                 :index index}
-               {'seq (fn seq-fn [_] tuple-seq)
-                'count (fn count-fn [_] (count m))
+               {'seq (fn seq-fn [_] (seq tuple-seq))
+                'count (fn count-fn [_] (count tuple-seq))
                 'get (fn [_ tup] (index-lookup index tup))})))
 
 (deftest make-relation-from-index-test

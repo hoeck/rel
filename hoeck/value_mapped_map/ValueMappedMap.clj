@@ -113,9 +113,9 @@
   (let [n (state :new-map)
         m (state :map)
         f (state :fn)]
-    (lazy-cat n (filter identity (map (fn [e] (if (and e (not (contains? n (key e)))) ;; check why the e can be nil here !!!
-                                                (LazyMapEntry. (key e) (delay (f (val e))))))
-                     m)))))
+    (seq (lazy-cat n (filter identity (map (fn [e] (if (and e (not (contains? n (key e)))) ;; check why the e can be nil here !!!
+                                                     (LazyMapEntry. (key e) (delay (f (val e))))))
+                                           m))))))
 
 (defn- -cons
   [this o]

@@ -1,6 +1,78 @@
 
 (in-ns 'hoeck.rel.reflection)
 
+(defn my-concat [x y]
+  (reduce conj x y))
+
+(let [classnames _xxx
+      m (magic-map (fn ([] classnames)
+                     ([cname] (set (method-args cname)))))]
+  ;;(count (make-relation m :fields [:class :method] :key :class)))
+  ;;(count (reduce clojure.set/union #{} (vals m)))
+  (count (reduce my-concat '() (vals m))) ;; why doesn't concat work here ?????
+)
+
+
+  (count (apply concat (vals m))))
+
+(let [f (fn ([] (filter #(< 0 (count (try-ignore (.getMethods (sym->class %))))) _xxx))
+            ([cname] (set (class-methods cname))))]
+  (count (f)))
+
+(count nil)
+0
+
+(magic-map (fn ([] (list 'java.lang.String))
+               ([cname] (sym->class cname))))
+
+(sym->class 'java.lang.String)
+
+(make-relation (fn 
+
+
+
+
+
+
+(in-ns 'user)
+
+
+(let [x 2]
+  (defn _fff [] x))
+
+and
+
+(def ggg (let [x 2] (fn [] x)))
+
+(_fff)
+2
+(ggg)
+^#'_fff
+{:ns #<Namespace user>, :name _fff, :file "NO_SOURCE_PATH", :line 2, :arglists ([])}
+^#'ggg
+{:ns #<Namespace user>, :name ggg, :file "NO_SOURCE_PATH", :line 1}
+
+
+
+
+
+
+;;;;
+(let [my-seq (let [s '(1 2 3)]
+               (proxy [clojure.lang.ISeq] []
+                 (seq [] (map inc s))
+                      (next [] (next s))
+                      (first [] (first s))
+                      (more [] nil)
+                      (cons [o] (list o))))]
+  (.seq my-seq))
+
+
+
+
+
+(in-ns 'hoeck.rel.reflection)
+
 
 (let [nsR (make-namespace-R)
       imports (make-ns-imports-R nsR)
