@@ -251,10 +251,9 @@ currently bound to *relations*"
   [R & opts]
   (cond (empty? R)
           (print (set R))
-        (= (count (fields R)) 1)
-          (print (set R))
         :else        
           (let [opts (as-keyargs opts (assoc *pretty-print-relation-opts* :writer *out*))
+                R (make-relation (take (:max-lines opts 20) R) :fields (fields R))
                 sizes (determine-column-sizes R opts)
                 pr-field (fn [tuple field-name comma]
                            (let [v (get tuple field-name)
@@ -272,7 +271,7 @@ currently bound to *relations*"
               (binding [*out* w]
                 (print "#{")
                 (print (pr-tuple (first R)))
-                (let [[tup-pr, tup-remain] (split-at (get opts :max-lines) (next R))]
+                (let [[tup-pr, tup-remain] (split-at (dec (get opts :max-lines)) (next R))]
                   (doseq [r tup-pr]
                     (println)
                     (print (str "  " (pr-tuple r))))
