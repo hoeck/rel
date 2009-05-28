@@ -253,7 +253,9 @@ currently bound to *relations*"
           (print (set R))
         :else        
           (let [opts (as-keyargs opts (assoc *pretty-print-relation-opts* :writer *out*))
-                R (make-relation (take (:max-lines opts 20) R) :fields (fields R))
+                R (if-let [max-l (:max-lines opts 20)]
+                    (make-relation (take (inc max-l) R) :fields (fields R))
+                    R)
                 sizes (determine-column-sizes R opts)
                 pr-field (fn [tuple field-name comma]
                            (let [v (get tuple field-name)

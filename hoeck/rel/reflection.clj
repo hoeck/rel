@@ -104,7 +104,7 @@
 ;; files
 
 (defn make-file-R
-  "Given one or more paths, returns a relation of all files below this path
+  "Given one or more existing paths, returns a relation of all files below this path
   using `clojure.core/file-seq'."
   [path-seq]
   (make-relation (map (fn [#^File f] {:name (.getName f)
@@ -112,7 +112,10 @@
                                :time (.lastModified f)
                                :directory (.isDirectory f)
                                :size (.length f)})
-                      (mapcat (fn [#^String p] (file-seq (java.io.File. p))) path-seq))))
+                      
+                              (mapcat (fn [#^File f] (file-seq f))
+                                      (filter #(.exists #^File %)
+                                              (map #(File. #^String %) path-seq))))))
 
 (defn- read-files-from-jar
   [pathname filename]
@@ -298,6 +301,7 @@
            
            ;; files
            classpath-rel (make-classpath-R)
+           _ (println (:files opts))
            file-rel (let [fr (make-file-R (:files opts))]
                       (if-let [rx (:filename-filter-regex opts)]
                         (select fr (rlike ~name rx))
@@ -320,6 +324,7 @@
         :interns interns-rel
         :publics publics-rel
         
+        :classpaths classpath-rel
         :files file-rel
         :jars jar-rel
 
