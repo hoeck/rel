@@ -30,9 +30,10 @@
   (def sym->class 
 ;;    "Converts a symbol or string to a java.lang.Class. Works for primitive types too.
 ;;  Returns nil if class nymed by s doesn't exist.."
-       (memoize (fn [s]        
-                  (or (primitive-types (symbol s))
-                      (try-ignore (Class/forName (str s))))))))
+       (memoize (fn [s]
+                  (and s
+                       (or (primitive-types (symbol s))
+                           (try-ignore (Class/forName (str s)))))))))
 
 (def class->sym
 ;;  "Converts a Class to a Symbol. For arrays, returns the component name."
@@ -207,7 +208,8 @@
                ;.isSynthetic c) :synthetic
                :else :class)
    :super (if-let [n (.getSuperclass c)]
-            (class->sym n))})
+            (class->sym n))
+   :modifiers (.getModifiers c)})
 
 (defn make-class-R [classname-seq]
   (make-relation (magic-map (fn ([] classname-seq)
@@ -234,7 +236,8 @@
           :name (symbol (.getName m))
           :arity (count (try-ignore (.getParameterTypes m)))
           :returntype (try-ignore (class->sym (.getReturnType m)))
-          :returns-array (try-ignore (.isArray (.getReturnType m)))})
+          :returns-array (try-ignore (.isArray (.getReturnType m)))
+          :modifiers (.getModifiers m)})
        (seq (try-ignore (.getMethods #^Class (sym->class cname))))))
 
 (defn make-method-R [classname-seq]
@@ -245,18 +248,18 @@
                  :fields (keys (first (class-methods 'java.lang.Object)))))
 
 (defn- method-args [cname]
-  (mapcat (fn [#^java.lang.reflect.Method m]
-            (let [m-args (.getParameterTypes m)
-                  m-args-count (count m-args)
-                  m-name (symbol (.getName m))]
-              (map (fn [#^Class c p] {:class cname
-                                      :method m-name
-                                      :arity m-args-count
-                                      :type (class->sym c)
-                                      :position p})
-                   m-args
-                   (range m-args-count))))
-          (try-ignore (.getDeclaredMethods #^Class (sym->class cname)))))
+  (doall (mapcat (fn [#^java.lang.reflect.Method m]
+                   (let [m-args (.getParameterTypes m)
+                         m-args-count (count m-args)
+                         m-name (symbol (.getName m))]
+                     (map (fn [#^Class c p] {:class cname
+                                             :method m-name
+                                             :arity m-args-count
+                                             :type (class->sym c)
+                                             :position p})
+                          m-args
+                          (range m-args-count))))
+                 (try-ignore (.getDeclaredMethods #^Class (sym->class cname))))))
 
 (defn make-method-args-R [classnames]
   (make-relation (magic-map (fn ([] classnames)
@@ -264,27 +267,6 @@
                  :key :class
                  :fields (keys (first (method-args 'java.lang.Object)))))
 
-; (defn- modifier-seq [name, mod-id]
-;   (map (fn [m] {:name name
-;                 :modifier m})
-;        (modifiers mod-id)))
-
-; (defn make-class-modifier-R [class-rel]
-;   (make-relation (mapcat (fn [c]
-;                            (modifier-seq (:name c) (.getModifiers #^Class (:class c))))
-;                          (project class-rel :name [(sym->class ~name) :class]))))
-
-; (defn make-method-modifier-R [method-rel]
-;    (make-relation (mapcat (fn [tup] 
-;                             (mapcat (fn [#^java.lang.reflect.Method m] 
-;                                               (map #(assoc %
-;                                                       :class
-;                                                       (:class tup))
-;                                                    (modifier-seq (symbol (.getName m)) (.getModifiers m))))
-;                                             (.getMethods #^Class (:the-class tup))))
-;                           (project method-rel
-;                                    :class
-;                                    [(sym->class ~class) :the-class]))))
 
 (defn find-more-classes 
   "Look in all reflection relations for not-yet seen classses,
@@ -324,24 +306,12 @@
                                        (and (rlike ~name ".*\\.jar$") ;; be shure to catch only jars on the classpath
                                             (contains? classpath-rel {:path (str ~path File/separator ~name)}))))
 
-           _ (println "files done")
-
            ;; java reflection
-           classnames (find-classnames imports-rel file-rel jar-rel classpath-rel)
-           _ (println "classnames done")
+           classnames (filter sym->class (find-classnames imports-rel file-rel jar-rel classpath-rel)) ;; only loadable classes
            class-rel (make-class-R classnames)
-           _ (println "classes done")
            method-rel (make-method-R classnames)
-           _ (println "methods done")
            method-args-rel (make-method-args-R classnames)
-           _ (println "method-args done")
-           interfaces-rel (make-interface-R classnames)
-           _ (println "interfaces done")
-;            class-modifiers-rel (make-class-modifier-R class-rel)
-;            _ (println "class-modifiers done")
-;            method-modifiers-rel (make-method-modifier-R method-rel)
-;            _ (println "method-modifiers done")
-           ]
+           interfaces-rel (make-interface-R classnames)]
 
        {:namespace ns-rel
         :imports imports-rel
@@ -356,10 +326,7 @@
         :classes class-rel
         :interfaces interfaces-rel
         :method-rel method-rel
-        :method-args method-args-rel
-;         :class-modifiers class-modifiers-rel
-;         :method-modifiers method-modifiers-rel
-        })))
+        :method-args method-args-rel})))
 
 (defmacro with-relations [& body]
   `(binding [*relations* (merge *relations* (build-reflection-relations))]

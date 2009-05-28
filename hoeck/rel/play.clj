@@ -6,35 +6,81 @@
 
 (let [classnames _xxx
       m (magic-map (fn ([] classnames)
-                     ([cname] (set (method-args cname)))))]
+                       ([cname] (set (method-args cname)))))]
   ;;(count (make-relation m :fields [:class :method] :key :class)))
   ;;(count (reduce clojure.set/union #{} (vals m)))
-  (count (reduce my-concat '() (vals m))) ;; why doesn't concat work here ?????
+  ;;(count (reduce my-concat '() (vals m))) ;; why doesn't concat work here ?????
+  (count (apply concat (comment (map #(mapcat (fn [#^java.lang.reflect.Method m]
+                                        (map (fn [#^Class c]
+                                               {:class % :method (symbol (.getName m))})
+                                             (and m (.getParameterTypes m))))
+                                      (and (sym->class %) (.getDeclaredMethods #^Class (sym->class %))))))
+                ))
+  (let [x (interpose nil(interpose nil(interpose nil(interpose nil(interpose nil(interpose nil(interpose nil(interpose nil(interpose nil(interpose nil(interpose nil(interpose nil (interpose nil (repeat 999 (range 10)))))))))))))))]
+    (count (apply concat x)))
+    ;;(reduce max 0 (map count (filter #(-> % first nil?) (partition-by nil? x))))
+  )
+
+(doc iterate)
+-------------------------
+clojure.core/iterate
+([f x])
+  Returns a lazy sequence of x, (f x), (f (f x)) etc. f must be free of side-effects
+
+
+;;; BUG: (STRANGE)
+(let [x (iterate #(interpose nil %) (repeat 10 (range 10)))]  
+  ;;(count (apply concat (nth x 13)))
+  ;;(count (apply concat (doall (nth x 13))))
+  ;;(count (reduce concat (nth x 13))))
+  (count (apply concat (remove nil? (nth x 13))))
 )
+(count (apply concat (repeat 10000 nil)))
 
 
-  (count (apply concat (vals m))))
-
-(let [f (fn ([] (filter #(< 0 (count (try-ignore (.getMethods (sym->class %))))) _xxx))
-            ([cname] (set (class-methods cname))))]
-  (count (f)))
-
-(count nil)
-0
-
-(magic-map (fn ([] (list 'java.lang.String))
-               ([cname] (sym->class cname))))
-
-(sym->class 'java.lang.String)
-
-(make-relation (fn 
+  ;(count (reduce #(reduce conj %1 %2) '() (nth x 20))))
 
 
+(defn choose  [a b]
+  (if (= 1 (int (rand 2))) (a) (b)))
 
+(reduce #(split-with nil? %)
+(use 'clojure.contrib.seq-utils :only '(partition-by))
 
 
 
 (in-ns 'user)
+
+
+
+
+
+(defmacro mymacro []
+        `(level1 `(level2)))
+
+(defmulti print-expand class)
+
+(defmethod print-expand clojure.lang.Symbol [x]
+  (print (symbol (name 'user/foo))))
+
+(defmethod print-expand :default [x]
+  (print x))
+
+(write (macroexpand '(mymacro)) :dispatch identity)
+
+
+(user/level1
+ (clojure.core/seq
+  (clojure.core/concat (clojure.core/list 'user/level2))))
+
+
+
+
+
+
+
+
+
 
 
 (let [x 2]
