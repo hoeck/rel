@@ -179,7 +179,7 @@
   [jar-R]
   (let [classfiles (field-seq (select jar-R (and (not ~directory) (rlike ~name ".*\\.class$")))
                               :name)]
-    (map #(.replace #^String % \/ \.) classfiles)))
+    (map #(.replace #^String (without-dotclass %) \/ \.) classfiles)))
 
 (defn- classnames-from-ns
   "Given the ns-imports relation, return all mentioned classes."
@@ -295,7 +295,12 @@
                                          (contains? classpath-rel {:path (str ~path File/separator ~name)}))))]
     [classpath-rel file-rel jar-rel]))
 
-(defn make-reflection-relations 
+(def make-file-relations-mem (memoize make-file-relations))
+
+(defn make-reflection-relations
+  "Loading all clojure&java6-classes (23K tuples) needs about 110Mb of PermGen space and about 35MB Heap.
+  ... with the methods relation (~630K tuples) 160MB
+  ... with method-args relation (~175K tuples) 215MB"
   ([& opts]
      (let [opts (as-keyargs opts {:files (concat (list-classpaths) (list-bootclasspaths))
                                   :filename-filter-regex nil
@@ -310,9 +315,9 @@
            publics-rel (make-ns-publics-R ns-rel)
            
            ;; files
-           [classpath-rel file-rel jar-rel] (memoize (make-file-relations (:files opts) (:filename-filter-regex opts)))
+           [classpath-rel file-rel jar-rel] (make-file-relations-mem (:files opts) (:filename-filter-regex opts))
            ;; java reflection
-           classnames (filter sym->class (find-classnames imports-rel file-rel jar-rel classpath-rel)) ;; only loadable classes
+           classnames (map class->sym (remove nil? (map sym->class (find-classnames imports-rel file-rel jar-rel classpath-rel)))) ;; only loadable classes
            class-rel (make-class-R classnames)
            method-rel (make-method-R classnames)
            method-args-rel (make-method-args-R classnames)
@@ -331,7 +336,7 @@
 
         :classes class-rel
         :interfaces interfaces-rel
-        :method-rel method-rel
+        :methods method-rel
         :method-args method-args-rel})))
 
 (defmacro with-relations [& body]

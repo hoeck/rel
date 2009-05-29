@@ -1,6 +1,17 @@
 
 (in-ns 'hoeck.rel.reflection)
 
+(with-out-writer "c:\\temp\\reflection.clj"
+  (binding [*pretty-print-relation-opts* (assoc *pretty-print-relation-opts* :max-lines nil)]
+  rr))
+
+
+
+
+(def _jars (:jars rr))
+
+
+
 (defn my-concat [x y]
   (reduce conj x y))
 
