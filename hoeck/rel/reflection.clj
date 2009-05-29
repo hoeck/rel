@@ -284,6 +284,16 @@
                              classes))
                 :class)))
 
+(defn make-file-relations [initial-paths file-filter-regex]
+  (let [classpath-rel (make-classpath-R)
+        file-rel (let [fr (make-file-R initial-paths)]
+                   (if-let [rx file-filter-regex]
+                     (select fr (rlike ~name rx))
+                     fr))
+        jar-rel (make-jar-R (select file-rel
+                                    (and (rlike ~name ".*\\.jar$") ;; be shure to catch only jars on the classpath
+                                         (contains? classpath-rel {:path (str ~path File/separator ~name)}))))]
+    [classpath-rel file-rel jar-rel]))
 
 (defn make-reflection-relations 
   ([& opts]
@@ -300,16 +310,7 @@
            publics-rel (make-ns-publics-R ns-rel)
            
            ;; files
-           classpath-rel (make-classpath-R)
-           _ (println (:files opts))
-           file-rel (let [fr (make-file-R (:files opts))]
-                      (if-let [rx (:filename-filter-regex opts)]
-                        (select fr (rlike ~name rx))
-                        fr))
-           jar-rel (make-jar-R (select file-rel
-                                       (and (rlike ~name ".*\\.jar$") ;; be shure to catch only jars on the classpath
-                                            (contains? classpath-rel {:path (str ~path File/separator ~name)}))))
-
+           [classpath-rel file-rel jar-rel] (memoize (make-file-relations (:files opts) (:filename-filter-regex opts)))
            ;; java reflection
            classnames (filter sym->class (find-classnames imports-rel file-rel jar-rel classpath-rel)) ;; only loadable classes
            class-rel (make-class-R classnames)
