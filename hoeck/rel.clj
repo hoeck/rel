@@ -231,8 +231,8 @@ currently bound to *relations*"
                                      (reduce max))
                               (fields R))
           pretty-col-widths (pipe max-col-widths
-                                  (map (partial min (:max-colsize opts 70)))
-                                  (map (partial max (:min-colsize opts 0))))
+                                  (map (partial min (:max-colsize opts 80)))
+                                  (map (partial max (:min-colsize opts 3))))
           small-fields-count (count (filter (partial <= (:min-colsize opts 0)) pretty-col-widths))
           amount (if (< small-fields-count 0)
                    (/ (- (reduce + pretty-col-widths) (:max-linesize opts 80))
@@ -242,7 +242,9 @@ currently bound to *relations*"
                            (map #(max (:min-colsize opts) (- % amount)) pretty-col-widths)
                            pretty-col-widths)))))
 
+
 (def *pretty-print-relation-opts* {:max-lines 20, :max-colsize 80, :max-linesize 200 :min-colsize 1})
+;;  :max-lines =^ *print-lenght*
 
 (defn pretty-print-relation
   "Print a relation pretty readably to :writer (default *out*), try 
@@ -251,17 +253,18 @@ currently bound to *relations*"
   [R & opts]
   (cond (empty? R)
           (print (set R))
-        :else        
-          (let [opts (as-keyargs opts (assoc *pretty-print-relation-opts* :writer *out*))
-                R (if-let [max-l (:max-lines opts 20)]
-                    (make-relation (take (inc max-l) R) :fields (fields R))
+        :else
+          (let [opts (as-keyargs opts (assoc (or *pretty-print-relation-opts* {}) :writer *out*))
+                max-lines (:max-lines opts *print-length*)
+                R (if max-lines
+                    (make-relation (take (inc max-lines) R) :fields (fields R))
                     R)
                 sizes (determine-column-sizes R opts)
                 pr-field (fn [tuple field-name comma]
                            (let [v (get tuple field-name)
                                  s (sizes field-name)]
                              (str (str-cut (str field-name " "
-                                                (str-align (str (print-str v) (if comma "," ""))
+                                                (str-align (str (pr-str v) (if comma "," ""))
                                                            (- s (count (str field-name)) (if comma 1 2))
                                                            (if (or (string? v) (symbol? v) (keyword? v)) :left :right)))
                                            s)
@@ -273,7 +276,9 @@ currently bound to *relations*"
               (binding [*out* w]
                 (print "#{")
                 (print (pr-tuple (first R)))
-                (let [[tup-pr, tup-remain] (split-at (dec (get opts :max-lines)) (next R))]
+                (let [[tup-pr, tup-remain] (if max-lines
+                                             (split-at (dec max-lines) (next R))
+                                             [(next R) nil])]
                   (doseq [r tup-pr]
                     (println)
                     (print (str "  " (pr-tuple r))))
@@ -295,7 +300,3 @@ currently bound to *relations*"
 
 ;(defaliases
 ;  sql-connection sql-utils/make-connection-fn)
-
-
-
-
