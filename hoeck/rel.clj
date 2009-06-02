@@ -37,7 +37,8 @@
   (:use hoeck.library
         hoeck.magic-map
         hoeck.rel.conditions
-        clojure.contrib.def))
+        clojure.contrib.def
+        clojure.contrib.duck-streams))
 
 (defmacro defaliases [& name-orig-pairs]
   `(do ~@(map #(list `defalias (first %) (second %)) (partition 2 name-orig-pairs))))
@@ -210,11 +211,11 @@ currently bound to *relations*"
      (let [f (cons field more-fields)]
        (map #(vec (map (partial get %)f)) R))))
                       
-(defn like [x expr] ;; sql-like-like, match everything easily
+(defn like [expr x] ;; sql-like-like, match everything easily, simplified regex
   (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
     (.matches (.toLowerCase x) (str ".*" expr ".*"))))
 
-(defn rlike [x regular-expression]
+(defn rlike [regular-expression x]
   (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
     (.matches x regular-expression)))
 
@@ -243,7 +244,7 @@ currently bound to *relations*"
                            pretty-col-widths)))))
 
 
-(def *pretty-print-relation-opts* {:max-lines 20, :max-colsize 80, :max-linesize 200 :min-colsize 1})
+(def *pretty-print-relation-opts* {:max-lines 60, :max-colsize 80, :max-linesize 200 :min-colsize 1})
 ;;  :max-lines =^ *print-lenght*
 
 (defn pretty-print-relation
@@ -256,10 +257,11 @@ currently bound to *relations*"
         :else
           (let [opts (as-keyargs opts (assoc (or *pretty-print-relation-opts* {}) :writer *out*))
                 max-lines (:max-lines opts *print-length*)
+                max-linesize (:max-linesize opts)
                 R (if max-lines
                     (make-relation (take (inc max-lines) R) :fields (fields R))
                     R)
-                sizes (determine-column-sizes R opts)
+                sizes (or (not max-linesize) (determine-column-sizes R opts))
                 pr-field (fn [tuple field-name comma]
                            (let [v (get tuple field-name)
                                  s (sizes field-name)]
@@ -275,21 +277,31 @@ currently bound to *relations*"
             (let [w (:writer opts)]
               (binding [*out* w]
                 (print "#{")
-                (print (pr-tuple (first R)))
+                (if max-linesize 
+                  (print (pr-tuple (first R)))
+                  (print (str (first R) ",")))
                 (let [[tup-pr, tup-remain] (if max-lines
                                              (split-at (dec max-lines) (next R))
                                              [(next R) nil])]
                   (doseq [r tup-pr]
                     (println)
-                    (print (str "  " (pr-tuple r))))
+                    (if max-linesize 
+                      (print (str "  " (pr-tuple r)))
+                      (print (str "  " r ","))))
                   (when (seq tup-remain) (println) (print "  ...")))
                 (println "}"))))))
-  
-;; establish default pretty-printing of relations, needs awareness for *print-** variables
-(defmethod print-method hoeck.rel.Relation
-  [R, w]
-  (pretty-print-relation R :writer w))
 
+;; establish default pretty-printing of relations, needs awareness for *print-** variables
+  (defmethod print-method hoeck.rel.Relation
+    [R, w]
+    (pretty-print-relation R :writer w)))
+
+
+;; saving & loading
+(defn save-relation [R f]
+  (with-out-writer f
+    (binding [*pretty-print-relation-opts* (assoc *pretty-print-relation-opts* :max-lines nil :max-linesize nil)]
+      (print (relation-or-lookup R)))))
 
 ;; sql stuff needs hoeck.rel
 ;(require '[hoeck.rel.sql-utils :as sql-utils])

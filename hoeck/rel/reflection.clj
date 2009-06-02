@@ -4,7 +4,9 @@
 (ns hoeck.rel.reflection
   (:use hoeck.rel
         hoeck.library
-        hoeck.magic-map)
+        hoeck.magic-map
+        clojure.contrib.duck-streams
+        clojure.contrib.pprint)
   (:import (java.io File, FileInputStream)
            (java.util.jar JarInputStream, JarEntry)
            (java.lang.instrument IllegalClassFormatException)))
@@ -215,6 +217,7 @@
    :modifiers (.getModifiers c)})
 
 (defn make-class-R [classname-seq]
+  (def _classname-seq classname-seq)
   (make-relation (magic-map (fn ([] classname-seq)
                                 ([cname] (class-tuple cname (sym->class cname)))))
                  :key :name
@@ -234,42 +237,40 @@
 
 (defn- class-methods [cname]
   (map (fn [#^java.lang.reflect.Method m]
-         {:class cname
-          :declaring-class (symbol (.getName (.getDeclaringClass m)))
+         {:class cname ;; declaring-class
+          ;:declaring-class (symbol (.getName (.getDeclaringClass m)))
           :name (symbol (.getName m))
           :arity (count (try-ignore (.getParameterTypes m)))
           :returntype (try-ignore (class->sym (.getReturnType m)))
           :returns-array (try-ignore (.isArray (.getReturnType m)))
           :modifiers (.getModifiers m)})
-       (seq (try-ignore (.getMethods #^Class (sym->class cname))))))
+       (seq (try-ignore (.getDeclaredMethods #^Class (sym->class cname))))))
 
 (defn make-method-R [classname-seq]
-  (def _xxx classname-seq)
-  (make-relation (magic-map (fn ([] (filter #(< 0 (count (try-ignore (.getMethods (sym->class %))))) classname-seq))
+  (make-relation (magic-map (fn ([] (filter #(< 0 (count (try-ignore (.getDeclaredMethods (sym->class %))))) classname-seq))
                                 ([cname] (set (class-methods cname)))))
                  :key :cname
                  :fields (keys (first (class-methods 'java.lang.Object)))))
 
 (defn- method-args [cname]
-  (doall (mapcat (fn [#^java.lang.reflect.Method m]
-                   (let [m-args (.getParameterTypes m)
-                         m-args-count (count m-args)
-                         m-name (symbol (.getName m))]
-                     (map (fn [#^Class c p] {:class cname
-                                             :method m-name
-                                             :arity m-args-count
-                                             :type (class->sym c)
-                                             :position p})
-                          m-args
-                          (range m-args-count))))
-                 (try-ignore (.getDeclaredMethods #^Class (sym->class cname))))))
+  (mapcat (fn [#^java.lang.reflect.Method m]
+            (let [m-args (.getParameterTypes m)
+                  m-args-count (count m-args)
+                  m-name (symbol (.getName m))]
+              (map (fn [#^Class c p] {:class cname
+                                      :method m-name
+                                      :arity m-args-count
+                                      :type (class->sym c)
+                                      :position p})
+                   m-args
+                   (range m-args-count))))
+          (try-ignore (.getDeclaredMethods #^Class (sym->class cname)))))
 
 (defn make-method-args-R [classnames]
   (make-relation (magic-map (fn ([] classnames)
                                 ([cname] (set (method-args cname)))))
                  :key :class
                  :fields (keys (first (method-args 'java.lang.Object)))))
-
 
 (defn find-more-classes 
   "Look in all reflection relations for not-yet seen classses,
@@ -347,6 +348,22 @@
   (< (count (:classes relations))
      (count (find-more-classes relations))))
 
+(defn save-reflection-relations 
+  ([path] (save-reflection-relations path *relations*))
+  ([path relations] 
+     (dorun (map #(save-relation (relations %)
+                                 (str path File/separator "reflection-" (name %) ".clj"))
+                 ;;(list :classpaths :files :jars :classes :interfaces :methods :method-args)
+                 (keys *relations*)))
+     nil))
+
+(defn load-reflection-relations
+  ([path]
+     (into {} (map #(vector (key %) (make-relation (with-in-reader (val %)) (read)))
+                   (file-map path
+                             #"^reflection-(.*)\.clj$")))))
+
+
 (comment
 
 ;; load many libs
@@ -373,7 +390,7 @@
 
 ;; all classes implementing clojure.lang.IFn
 (with-relations (select :implements (like ~interface 'IFn)))
-
+·
 (missing-classes? (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations))))))))))
 
 )

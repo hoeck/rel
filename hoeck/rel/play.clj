@@ -1,16 +1,67 @@
 
 (in-ns 'hoeck.rel.reflection)
 
-(with-out-writer "c:\\temp\\reflection.clj"
-  (binding [*pretty-print-relation-opts* (assoc *pretty-print-relation-opts* :max-lines nil)]
-  rr))
+
+
+(pprint (clojure.set/difference  (set (.getMethods (type {}))) 
+                                 (set (mapcat #(.getMethods %) (supers (type {}))))))
+nil
+(pprint (set (mapcat #(.getMethods %) (supers (type {})))))
+
+(pprint (set (.getDeclaredMethods (type {}))))
+
+(defn save-reflection-relations 
+  ([path] (save-reflection-relations path *relations*))
+  ([path relations] (map #(save-relation (relations %)
+                                    (str "reflection-" (name %) ".clj")
+                                    (key *relations*))
+
+; )
+
+(doc with-in-file)
+(doc read)
+-------------------------
+clojure.core/read
+([] [stream] [stream eof-error? eof-value] [stream eof-error? eof-value recursive?])
+  Reads the next object from stream, which must be an instance of
+  java.io.PushbackReader or some derivee.  stream defaults to the
+  current value of *in* .
+nil
+nil
+
+(filter (file-seq ))
+
+
+
+
+
+
+
+
+
+(re-seq #"^reflection-(.*)\.clj$" 
+        "reflection-classes.clj")
+(["reflection-classes.clj" "classes"])
+
+
+
+      (map #(vector (keyword (.substring (.substring (.getName %) 11) 0 3)) %)))
+([:iles.clj #<File /home/timmy-turner/temp/reflection-files.clj>] [:lasspaths.clj #<File /home/timmy-turner/temp/reflection-classpaths.clj>] [:ars.clj #<File /home/timmy-turner/temp/reflection-jars.clj>] [:lasses.clj #<File /home/timmy-turner/temp/reflection-classes.clj>] [:nterfaces.clj #<File /home/timmy-turner/temp/reflection-interfaces.clj>] [:ethods.clj #<File /home/timmy-turner/temp/reflection-methods.clj>] [:ethod-args.clj #<File /home/timmy-turner/temp/reflection-method-args.clj>])
+([:reflection-f #<File /home/timmy-turner/temp/reflection-files.clj>] [:reflection-c #<File /home/timmy-turner/temp/reflection-classpaths.clj>] [:reflection-j #<File /home/timmy-turner/temp/reflection-jars.clj>] [:reflection-c #<File /home/timmy-turner/temp/reflection-classes.clj>] [:reflection-i #<File /home/timmy-turner/temp/reflection-interfaces.clj>] [:reflection-m #<File /home/timmy-turner/temp/reflection-methods.clj>] [:reflection-m #<File /home/timmy-turner/temp/reflection-method-args.clj>])
+
+(.substring "ab" 1)
+"b"
+"b"
+""
+"a"
+
+
+
 
 
 
 
 (def _jars (:jars rr))
-
-
 
 (defn my-concat [x y]
   (reduce conj x y))

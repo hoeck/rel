@@ -749,6 +749,23 @@ on keywords without `:'"
 ;;; general java interop/reflection
 ;;; -------------------------------
 
+(defn file-map
+  "Read all files matching regex from directory PATH.
+  Return a map of keywords to files. Keywords are generated from
+  the first matching group of regex and filename."
+  [path regex]
+  (pipe (if (isa? path java.io.File) path (File. path))
+        (.listFiles)
+        (seq)
+        (remove #(.isDirectory %))
+        (map #(vector (-> (re-seq regex (.getName %)) first second)
+                      %))
+        (remove #(-> % first nil?))
+        (map #(vector (-> % first keyword) (second %)))
+        (into {})))
+
+
+
 ;;; from rhickey: http://paste.lisp.org/display/67182
 (defn jcall [obj name & args]
   (clojure.lang.Reflector/invokeInstanceMethod obj (str name)
