@@ -36,9 +36,11 @@
             hoeck.value-mapped-map.ValueMappedMap)
   (:use hoeck.library
         hoeck.magic-map
+        hoeck.value-mapped-map
         hoeck.rel.conditions
         clojure.contrib.def
-        clojure.contrib.duck-streams))
+        clojure.contrib.duck-streams
+        clojure.contrib.pprint))
 
 (defmacro defaliases [& name-orig-pairs]
   `(do ~@(map #(list `defalias (first %) (second %)) (partition 2 name-orig-pairs))))
@@ -77,10 +79,10 @@
   "Return a relation of [:field :name] of all relations
 currently bound to *relations*"
   []
-  (make-relation (set (mapcat (fn [r] (map #(hash-map :name r
-                                                      :field %)
-                                           (fields r)))
-                              (keys *relations*)))))
+  (make-relation (doall (mapcat (fn [r] (map #(hash-map :relation r
+                                                        :field %)
+                                             (fields r)))
+                                (keys *relations*)))))
 
 ;; rename
 
@@ -210,12 +212,25 @@ currently bound to *relations*"
   ([R field & more-fields]
      (let [f (cons field more-fields)]
        (map #(vec (map (partial get %)f)) R))))
-                      
-(defn like [expr x] ;; sql-like-like, match everything easily, simplified regex
-  (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
-    (.matches (.toLowerCase x) (str ".*" expr ".*"))))
 
-(defn rlike [regular-expression x]
+(defn field-map
+  "Return a map of key-field values to value-field values."
+  [R key-field value-field]
+  (value-mapped-map #(map value-field %)
+                    (group-by R key-field)))
+                      
+(defn like
+  "Return true if the expr matches string symbol or keyword x
+  Expr is eiter a string or a symbol. It is matched against x ignoring
+  case and using `*' as a wildcard."
+  [expr x] ;; sql-like-like, match everything easily, simplified regex
+  (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
+    (.matches (.toLowerCase x) 
+              (str "^" (.replace (.toLowerCase (str expr)) "*" ".*") "$"))))
+
+(defn rlike
+  "Return true if string symbol or keyword X matches the regular expression EXPR."
+  [regular-expression x]
   (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
     (.matches x regular-expression)))
 
@@ -292,9 +307,9 @@ currently bound to *relations*"
                 (println "}"))))))
 
 ;; establish default pretty-printing of relations, needs awareness for *print-** variables
-  (defmethod print-method hoeck.rel.Relation
-    [R, w]
-    (pretty-print-relation R :writer w)))
+(defmethod print-method hoeck.rel.Relation
+  [R, w]
+  (pretty-print-relation R :writer w))
 
 
 ;; saving & loading

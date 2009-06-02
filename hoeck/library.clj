@@ -754,7 +754,7 @@ on keywords without `:'"
   Return a map of keywords to files. Keywords are generated from
   the first matching group of regex and filename."
   [path regex]
-  (pipe (if (isa? path java.io.File) path (File. path))
+  (pipe (if (isa? path java.io.File) path (java.io.File. path))
         (.listFiles)
         (seq)
         (remove #(.isDirectory %))

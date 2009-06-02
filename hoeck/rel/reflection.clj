@@ -110,14 +110,14 @@
   using `clojure.core/file-seq'."
   [path-seq]
   (make-relation (map (fn [#^File f] {:name (.getName f)
-                               :path (.getParent f)
-                               :time (.lastModified f)
-                               :directory (.isDirectory f)
-                               :size (.length f)})
+                                      :path (.getParent f)
+                                      :time (.lastModified f)
+                                      :directory (.isDirectory f)
+                                      :size (.length f)})
                       
-                              (mapcat (fn [#^File f] (file-seq f))
-                                      (filter #(.exists #^File %)
-                                              (map #(File. #^String %) path-seq))))))
+                      (mapcat (fn [#^File f] (file-seq f))
+                              (filter #(.exists #^File %)
+                                      (map #(File. #^String %) path-seq))))))
 
 (defn- read-files-from-jar
   [pathname filename]
@@ -140,7 +140,7 @@
   of the file-R."
   [file-R]
   (make-relation (mapcat #(read-files-from-jar (:path %) (:name %))
-                         (select file-R (rlike ~name ".*\\.jar$")))
+                         (select file-R (rlike ".*\\.jar$" ~name)))
                  :fields [:path :jar :name :size :compressed-size :time :comment :directory]))
 
 (defn- path->package
@@ -169,7 +169,7 @@
 (defn- classnames-from-files
   "Given a file relation, "
   [cp-relation file-relation]
-  (let [classfiles (select file-relation (rlike ~name ".*\\.class$"))
+  (let [classfiles (select file-relation (rlike ".*\\.class$" ~name))
         cp (field-seq cp-relation :path)]
     (pipe (project classfiles :path :name)
           (mapcat (fn [tup] (map #(str % "." (without-dotclass (:name tup)))
@@ -179,7 +179,7 @@
 ;; assume classpath inside the jar to be .; (ignore the MANIFESTs classpath-line)
 (defn- classnames-from-jars ;; assume jar-R contains only jars on the classpath
   [jar-R]
-  (let [classfiles (field-seq (select jar-R (and (not ~directory) (rlike ~name ".*\\.class$")))
+  (let [classfiles (field-seq (select jar-R (and (not ~directory) (rlike ".*\\.class$" ~name)))
                               :name)]
     (map #(.replace #^String (without-dotclass %) \/ \.) classfiles)))
 
@@ -204,7 +204,7 @@
 (defn- class-tuple
   "Creates a tuple from a java.lang.Class object."
   [cname #^Class c]
-  {:name cname
+  {:class cname
    :type (cond (.isEnum c) :enum
                (.isInterface c) :interface
                (try-ignore (.isAnonymousClass c)) :anonymous
@@ -220,7 +220,7 @@
   (def _classname-seq classname-seq)
   (make-relation (magic-map (fn ([] classname-seq)
                                 ([cname] (class-tuple cname (sym->class cname)))))
-                 :key :name
+                 :key :class
                  :fields (keys (class-tuple 'String String))))
 
 (defn- class-interfaces [cname]
@@ -249,7 +249,7 @@
 (defn make-method-R [classname-seq]
   (make-relation (magic-map (fn ([] (filter #(< 0 (count (try-ignore (.getDeclaredMethods (sym->class %))))) classname-seq))
                                 ([cname] (set (class-methods cname)))))
-                 :key :cname
+                 :key :class
                  :fields (keys (first (class-methods 'java.lang.Object)))))
 
 (defn- method-args [cname]
@@ -277,8 +277,8 @@
   eg. returnvalues from methods, method-args, interfaces."
   [relation-map]
   (binding [*relations* relation-map]
-    (field-seq (let [classes (rename (project :classes :name) :name :class)]
-                 (difference (union (rename (project :implements :interface) :interface :class)
+    (field-seq (let [classes (project :classes :class)]
+                 (difference (union (rename (project :interfaces :interface) :interface :class)
                                     (rename (project :imports :import) :import :class)
                                     (rename (project :method-args :type) :type :class)
                                     (rename (project :methods :returntype) :returntype :class))
@@ -289,19 +289,17 @@
   (let [classpath-rel (make-classpath-R)
         file-rel (let [fr (make-file-R initial-paths)]
                    (if-let [rx file-filter-regex]
-                     (select fr (rlike ~name rx))
+                     (select fr (rlike rx ~name))
                      fr))
         jar-rel (make-jar-R (select file-rel
-                                    (and (rlike ~name ".*\\.jar$") ;; be shure to catch only jars on the classpath
+                                    (and (rlike ".*\\.jar$" ~name) ;; be shure to catch only jars on the classpath
                                          (contains? classpath-rel {:path (str ~path File/separator ~name)}))))]
     [classpath-rel file-rel jar-rel]))
 
 (def make-file-relations-mem (memoize make-file-relations))
 
 (defn make-reflection-relations
-  "Loading all clojure&java6-classes (23K tuples) needs about 110Mb of PermGen space and about 35MB Heap.
-  ... with the methods relation (~630K tuples) 160MB
-  ... with method-args relation (~175K tuples) 215MB"
+  "Loading all clojure&java6-classes (23K tuples) needs about 110Mb of PermGen space and about 35MB Heap."
   ([& opts]
      (let [opts (as-keyargs opts {:files (concat (list-classpaths) (list-bootclasspaths))
                                   :filename-filter-regex nil
@@ -340,13 +338,11 @@
         :methods method-rel
         :method-args method-args-rel})))
 
-(defmacro with-relations [& body]
-  `(binding [*relations* (merge *relations* (build-reflection-relations))]
-     ~@body))
-
-(defn missing-classes? [relations]
-  (< (count (:classes relations))
-     (count (find-more-classes relations))))
+(defn load-reflection-relations
+  ([path]
+     (into {} (map #(vector (key %) (make-relation (with-in-reader (val %)) (read)))
+                   (file-map path
+                             #"^reflection-(.*)\.clj$")))))
 
 (defn save-reflection-relations 
   ([path] (save-reflection-relations path *relations*))
@@ -357,14 +353,18 @@
                  (keys *relations*)))
      nil))
 
-(defn load-reflection-relations
-  ([path]
-     (into {} (map #(vector (key %) (make-relation (with-in-reader (val %)) (read)))
-                   (file-map path
-                             #"^reflection-(.*)\.clj$")))))
+(defn missing-classes? [relations]
+  (< (count (:classes relations))
+     (count (find-more-classes relations))))
 
+(def reflection-relations (delay (make-reflection-relations)))
+
+(defmacro with-relations [& body]
+  `(binding [*relations* (merge *relations* (force reflection-relations))]
+     ~@body))
 
 (comment
+;; some examples of using relations to query the java reflection interface
 
 ;; load many libs
 (require '(clojure.contrib duck-streams sql command_line cond def duck_streams
@@ -372,26 +372,67 @@
                              mmap ns_utils seq_utils sql str_utils test_clojure
                              test_is trace zip_filter))
 
-(with-relations
- ;; example: private definitions in the hoeck.rel.structmaps namespace
- (and (= (select (difference :interns :publics) (= ~ns-name 'hoeck.rel.structmaps))
-         (get-in (op/index (difference :interns :publics)) [:ns-name 'hoeck.rel.structmaps])) ;; test index
-      (select (difference :interns :publics) (= ~ns-name 'hoeck.rel.structmaps))))
+;; Loading all clojure&java6-classes (23K tuples) needs about 110Mb of PermGen space and about 35MB Heap.
+;; increase PermGen space with the: "-XX:MaxPermSize=256m" jvm flag
+
+;; print all accessible relations in a map rel-name -> fields
+(with-relations (pprint (into {} (field-map (relations) :relation :field))))
+
+;; example: private definitions in the hoeck.rel.reflection namespace
+(with-relations (select (difference :interns :publics) (= ~ns 'hoeck.rel.reflection)))
 
 ;; class relation
 (with-relations (*relations* :classes))
 
-;; list all files on the classpath
+;; pretty-printing
+(format "by default, only %d tuples of a relation are printed" (*pretty-print-relation-opts* :max-lines))
+
+;; files on the classpath
 (with-relations
  (order-by
   (project :files [(/ ~size 1000.0) :size-in-kb] :name :path)
   :size-in-kb
-  '<))
+  '>))
 
-;; all classes implementing clojure.lang.IFn
-(with-relations (select :implements (like ~interface 'IFn)))
-·
-(missing-classes? (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations (find-more-classes (build-reflection-relations))))))))))
+;; jars
+(with-relations (project (select :files (like '*.jar ~name)) :name :path))
+
+;; jars that are mentioned in the classpath
+(with-relations (join
+                 (project (select :files (rlike ".*\\.jar$" ~name))
+                          [(str ~path File/separator ~name) :path])
+                 :path
+                 :classpaths
+                 :path))
+
+;; relations are first-class
+(do (with-relations (def java-lang-classes (select :classes (rlike "^java\\.lang\\.[A-Z].*" ~class))))
+    (defn without-inner-classes [classes-rel]
+      (select classes-rel (rlike "[^\\$]*" ~class))))
+
+;; number of classes in the java.lang package
+(count (without-inner-classes java-lang-classes))
+
+;; all inner classes in the java.lang package
+;; (takes some time to compute, calculates all indexes over the :classes relation due to poor difference implementation)
+(count (difference java-lang-classes (without-inner-classes java-lang-classes)))
+
+;; interfaces in the java lang package
+(with-relations (select :classes (and (rlike "^java\\.lang\\.[A-Z].*" ~class) (= :interface ~type))))
+;; or 
+(select java-lang-classes (= :interface ~type))
+
+;; definition of the interface relation
+(with-relations (fields :interfaces))
+
+;; number of implemented interfaces 
+(with-relations (count (project :interfaces :interface)))
+
+;; total number of interfaces
+(with-relations (count (select :classes (= ~type :interface))))
+
+;; all classes (directly) implementing clojure.lang.IFn
+(with-relations (pprint (field-seq (select :interfaces (= 'clojure.lang.IFn ~interface)) :class)))
 
 )
 
