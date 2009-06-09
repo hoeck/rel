@@ -1,0 +1,61 @@
+<project name="rel" default="jar">
+
+    <description>
+       Build with "ant -Dclojure.jar=&lt;...path to clojure.jar..&gt; -Dlazymap.jar=&lt;...path to lazymap.jar..&gt;"
+    </description>
+
+    <property name="src.dir" location="."/>
+    <property name="classes.dir" location="classes"/>
+
+    <property name="jar.file" location="rel.jar"/>
+
+    <available property="has-clojure" file="${clojure.jar}"/>
+    <available property="has-lazymap" file="${lazymap.jar}"/>
+    
+    <target name="gen-classes" description="generate classes">
+        <fail unless="has-clojure"> 
+  You have not defined a path to clojure.jar so I can't generate my classes. 
+  Run "ant -Dclojure.jar=&lt;...path to clojure.jar..&gt;" to tell me where clojure is.
+        </fail>
+        <fail unless="has-lazymap"> 
+  Please download and build lazymap from http://bitbucket.org/kotarak/lazymap/ and then
+  Run ant with -Dlazymap.jar=&lt;...path to lazymap.jar..&gt;" to tell me where lazymap is.
+        </fail>
+        <java classname="clojure.lang.Compile">
+            <classpath>
+                <path location="${classes.dir}"/>
+                <path location="${src.dir}"/>
+                <path location="${clojure.jar}"/>
+                <path location="${lazymap.jar}"/>
+            </classpath>
+            <sysproperty key="clojure.compile.path" value="${classes.dir}"/>
+            <arg value="hoeck.magic-map.MagicMap"/>
+            <arg value="hoeck.value-mapped-map.ValueMappedMap"/>
+            <arg value="hoeck.rel.Relation"/>
+        </java>
+    </target>
+
+    <target name="jar" depends="gen-classes"
+        description="create jar including the clj sources and the custom classes">
+        <jar jarfile="${jar.file}">
+            <fileset file="README.txt"/>
+            <fileset file="LICENSE.txt"/>
+            <fileset dir="${classes.dir}" includes="hoeck/magic_map/MagicMap.class"/>
+            <fileset dir="${classes.dir}" includes="hoeck/magic_map/MagicMap__init.class"/>
+            <fileset dir="${classes.dir}" includes="hoeck/value_mapped_map/ValueMappedMap.class"/>
+            <fileset dir="${classes.dir}" includes="hoeck/value_mapped_map/ValueMappedMap__init.class"/>
+            <fileset dir="${classes.dir}" includes="hoeck/rel/Relation.class"/>
+            <fileset dir="${classes.dir}" includes="hoeck/rel/Relation__init.class"/>
+            <fileset dir="${src.dir}" includes="**/*.clj"/>
+            <manifest>
+                <attribute name="Class-Path" value="."/>
+            </manifest>
+        </jar>
+    </target>
+
+    <target name="clean" description="clean generated files (jar and classes)">
+        <delete dir="${classes.dir}"/>
+        <delete file="${jar.file}"/>
+    </target>
+
+</project>
