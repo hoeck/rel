@@ -2,6 +2,7 @@
 
     <description>
        Build with "ant -Dclojure.jar=&lt;...path to clojure.jar..&gt; -Dlazymap.jar=&lt;...path to lazymap.jar..&gt;"
+       Get lazymap from: http://bitbucket.org/kotarak/lazymap/
     </description>
 
     <property name="src.dir" location="."/>
@@ -11,8 +12,15 @@
 
     <available property="has-clojure" file="${clojure.jar}"/>
     <available property="has-lazymap" file="${lazymap.jar}"/>
+
+    <target name="init" description="create build directories">
+        <tstamp/>
+        <mkdir dir="${classes.dir}"/>
+    </target>
     
-    <target name="gen-classes" description="generate classes">
+    <target name="gen-classes" 
+            depends="init"
+            description="generate classes">
         <fail unless="has-clojure"> 
   You have not defined a path to clojure.jar so I can't generate my classes. 
   Run "ant -Dclojure.jar=&lt;...path to clojure.jar..&gt;" to tell me where clojure is.

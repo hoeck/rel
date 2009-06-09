@@ -14,6 +14,14 @@ Needs also some
 "clojure.contrib":http://code.google.com/p/clojure-contrib/ modules
 and "lazymap":http://bitbucket.org/kotarak/lazymap from kotarak.
 
+h2. Build
+
+Clone or download the contents of this repository and then build it using ant:
+<pre><code>
+ant -Dclojure.jar=<..path to clojure.jar..> -Dlazymap.jar=<..path to lazymap.jar..>
+</code></pre>
+Include the generated rel.jar in your classpath
+
 h2. Some examples using the reflection relations
 
 * Load the hoeck.rel library
@@ -138,9 +146,8 @@ user> (with-relations (-> (select :interfaces
 </code>
 </pre>
 
-h2. TODO
+h2. TODO:
 
-* ant build script
 * function-join
 * datalog (iris and/or clojure.contrib.datalog)
 * sql backend
