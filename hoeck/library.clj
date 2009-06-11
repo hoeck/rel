@@ -74,11 +74,11 @@ Defaults to (= n 2)."
 ;; -> clojure.core/partition
 (defn
   #^{:test #(let [x '(1 2 3 a b c)]
-             (and (= (apply interleave (partition-nth x)) x)
-              (= (apply interleave (partition-nth x 3)) x)))
+             (and (= (apply interleave (unzip x)) x)
+              (= (apply interleave (unzip x 3)) x)))
      :doc "Inverse function to `interleave', defaults to (= n 2)."}
   unzip
-  ([s] (partition-nth 2 s))
+  ([s] (unzip 2 s))
   ([n s] (map #(take-nth n (nthnext s %)) (range n))))
 
 (def partition-nth unzip)

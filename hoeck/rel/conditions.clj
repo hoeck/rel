@@ -166,7 +166,7 @@
            :fields (list field-name)
            :return-fields (list field-name)
            :type :identity
-           :name field-name})
+           :return-field (list field-name)})
     ([fields];; should test that field_name is included in fields,
        ;; otherwise throw an error
        (let [field-pos (pos fields field-name)]

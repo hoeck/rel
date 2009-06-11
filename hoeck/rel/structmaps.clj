@@ -201,7 +201,7 @@
 
 (def example-project-expression
      (read-expressions
-      (list (condition (str ~name ", " ~vorname) :full-name)
+      (list (condition (str ~name ", " ~vorname) :as :full-name)
             :id)))
 
 ;; split that into
@@ -235,7 +235,7 @@
                 'get get-fn
                 })))
 
-(defn project-expression 
+(defn project-expression ;; ?? replace with fjoin?
   ([R expr]
      ;; map fields to new fields, an expr is basically a function from field* -> new-field on each `row'
      (let [em (condition-meta expr)
@@ -289,7 +289,7 @@
 
 (deftest project-expr-test
   (with-testdata
-    (let [expr (list :id (condition (str ~vorname "-" ~id) :name-id) :name)
+    (let [expr (list :id (condition (str ~vorname "-" ~id) :as :name-id) :name)
           p (project R expr)]
       (is (= (map #(str (:vorname %) "-" (:id %)) R) (map :name-id p)) "expression")
       (is (= (index p) (make-index p (fields p))) "index"))))
@@ -376,11 +376,11 @@
      (is (= (set (fields j)) (set (concat (fields R) (filter #(not= :id %) (fields S))))) "joined fields")
      (is (= (clean-index (index j)) (make-index j (fields j))) "index"))))
 
-(defmethod fjoin :clojure [R f] ;; much like project with an expression, but allows 1..n joins instead of 1..1 only
-  ;; f must return a seq of tuples or nil
+(defmethod fjoin :clojure [R c] ;; much like project with an expression, but allows 1..n joins instead of 1..1 only
+  ;; c is a h.r.condition wich must return a seq or set of tuples or nil
   ;; when calling f without a tuple, then it should return its metadata
   (let [new-fields nil]
-    (Relation. (merge {} {:fields (concat (fields R) ()})
+    (Relation. (merge {} {:fields (concat (fields R) (:return-fields (condition-meta c)))})
                {'seq '_
                 'get '_
                 'count '_})))
