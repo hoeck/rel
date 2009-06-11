@@ -25,15 +25,12 @@ Include the generated rel.jar in your classpath
 h2. Some examples using the reflection relations
 
 * Load the hoeck.rel library
-<pre>
-<code>
+<pre><code>
 user> (use 'hoeck.rel.reflection)
-</code>
-</pre>
+</code></pre>
 
 * Print all accessible relations in a map rel-name -> fields
-<pre>
-<code>
+<pre><code>
 user> (with-relations (pprint (into {} (field-map (relations) :relation :field))))
 {:publics (:ns :name :varname),
  :namespace (:name),
@@ -48,12 +45,10 @@ user> (with-relations (pprint (into {} (field-map (relations) :relation :field))
  :classes (:super :class :type :modifiers),
  :refers (:ns :name :varname),
  :aliases (:ns :name :alias)}
-</code>
-</pre>
+</code></pre>
 
 * Private definitions in the hoeck.rel.reflection namespace
-<pre>
-<code>
+<pre><code>
 user> (with-relations (project (select (difference :interns :publics)
                                        (= ~ns 'hoeck.rel.reflection))
                                :name))
@@ -68,12 +63,10 @@ user> (with-relations (project (select (difference :interns :publics)
   {:name class-tuple          }
   {:name find-classnames      }
   {:name classnames-from-jars }}
-</code>
-</pre>
+</code></pre>
 
 * Relation of all files on the classpath, ordered by size
-<pre>
-<code>
+<pre><code>
 user> (with-relations
        (order-by
         (project :files [(/ ~size 1000.0) :size-in-kb] :name :path)
@@ -82,57 +75,45 @@ user> (with-relations
 #{{:size-in-kb  43800.36, :name "rt.jar",       :path "C:\\Programme\\Java\\jre6\\lib"}
   {:size-in-kb  6592.915, :name "charsets.jar", :path "C:\\Programme\\Java\\jre6\\lib"}
   ...}
-</code>
-</pre>
+</code></pre>
 
 * Relations are first-class citizens
-<pre>
-<code>
+<pre><code>
 user> (with-relations (def java-lang-classes (select :classes (rlike "^java\\.lang\\.[A-Z].*" ~class))))
 #'hoeck.rel.reflection/java-lang-classes
 
 user> (defn without-inner-classes [classes-rel]
         (select classes-rel (rlike "[^\\$]*" ~class)))
 #'hoeck.rel.reflection/without-inner-classes
-</code>
-</pre>
+</code></pre>
 
 * The number of classes in the java.lang package
-<pre>
-<code>
+<pre><code>
 user> (count (without-inner-classes java-lang-classes))
 108
-</code>
-</pre>
+</code></pre>
 
 * All inner classes in the java.lang package 
 (takes some time to compute, calculates all indexes over the :classes relation due to my poor difference implementation)
-<pre>
-<code>
+<pre><code>
 user> (count (difference java-lang-classes (without-inner-classes java-lang-classes)))
 48
-</code>
-</pre>
+</code></pre>
 
 * Number of implemented interfaces
-<pre>
-<code>
+<pre><code>
 user> (with-relations (count (project :interfaces :interface)))
 2035
-</code>
-</pre>
+</code></pre>
 
 * Total number of interfaces
-<pre>
-<code>
+<pre><code>
 user> (with-relations (count (select :classes (= ~type :interface))))
 2580
-</code>
-</pre>
+</code></pre>
 
 * Classes (directly) implementing clojure.lang.IFn
-<pre>
-<code>
+<pre><code>
 user> (with-relations (-> (select :interfaces 
                                   (= 'clojure.lang.IFn ~interface))
                           (field-seq :class)
@@ -143,8 +124,7 @@ user> (with-relations (-> (select :interfaces
  clojure.lang.Keyword
  clojure.lang.Ref
  clojure.lang.Var)
-</code>
-</pre>
+</code></pre>
 
 h2. TODO:
 

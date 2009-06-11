@@ -52,7 +52,6 @@
            (next keys)))
         ret)))
 
-
 ;; index tools
 
 (defn- index-lookup
@@ -355,6 +354,8 @@
   (magic-map a (fn ([] (keys b))
                    ([k] (get b k)))))
 
+;;; joins
+
 (defmethod join :clojure [R r S s]
   (let [index-Ss (find (index S) s)
         join-tuple (fn [r-tup] (let [friends (get (val index-Ss) (r-tup r))]
@@ -374,6 +375,14 @@
    (let [j (join R :adress-id S :id)]
      (is (= (set (fields j)) (set (concat (fields R) (filter #(not= :id %) (fields S))))) "joined fields")
      (is (= (clean-index (index j)) (make-index j (fields j))) "index"))))
+
+(defmethod fjoin [R f] ;; much like project with an expression, but allows 1..n joins instead of 1..1 only
+  ;; f must return a seq of tuples or nil
+  (let []
+    (Relation (merge ^R {:fields (fields R) ()}) {}
+              {'seq _
+               'get _
+               'count _})))
 
 (defmethod xproduct :clojure [R S]
   (let [cross-tuple (fn [r-tup] (map #(merge r-tup %) S))]
