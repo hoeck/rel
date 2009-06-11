@@ -376,13 +376,14 @@
      (is (= (set (fields j)) (set (concat (fields R) (filter #(not= :id %) (fields S))))) "joined fields")
      (is (= (clean-index (index j)) (make-index j (fields j))) "index"))))
 
-(defmethod fjoin [R f] ;; much like project with an expression, but allows 1..n joins instead of 1..1 only
+(defmethod fjoin :clojure [R f] ;; much like project with an expression, but allows 1..n joins instead of 1..1 only
   ;; f must return a seq of tuples or nil
-  (let []
-    (Relation (merge ^R {:fields (fields R) ()}) {}
-              {'seq _
-               'get _
-               'count _})))
+  ;; when calling f without a tuple, then it should return its metadata
+  (let [new-fields nil]
+    (Relation. (merge {} {:fields (concat (fields R) ()})
+               {'seq '_
+                'get '_
+                'count '_})))
 
 (defmethod xproduct :clojure [R S]
   (let [cross-tuple (fn [r-tup] (map #(merge r-tup %) S))]

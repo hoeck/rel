@@ -26,8 +26,12 @@
 
 
 (ns hoeck.rel.conditions
-  (:use hoeck.library))
+  (:use hoeck.library
+        ;;[clojure.set :only [rename-keys]]
+        [clojure.contrib.except :only [throw-arg]]))
 
+(defn rename-keys [m kmap]
+  (if m (into (empty m) (map (fn [[k v]] [(or (kmap k) k), v]) m))))
 
 ;; condition
 
@@ -99,9 +103,7 @@
   condition-expression, the involved columns and additional properties. (function meta-data).
   Calling with a hashmap as the arguments executes the expr with the unquoted symbols bound to
   the corresponding fields of the hashmap."
-  ([expr] `(condition ~expr nil ;;~(gensym "c-")
-                      ))
-  ([expr condition-name]
+  ([expr & metadata]
      (let [fields (map #(-> % second str keyword) (collect-exprs field-form? expr))
            tuple-sym (gensym "tuple")
            fn-expr (replace-exprs field-form? #(list (-> % second str keyword) tuple-sym) expr)]
@@ -114,12 +116,24 @@
              ;; expr is not working, the condition-function-ctor and the
              ;; condition-function are working anyway.
              ;; this is actually function metadata and will be moved there if that finally gets implemented
-             {:expr (fn [] ~(quote-condition-expression expr)),;; wrap in a fn, so that they are not 'accidentially' computed when accessing the condition-metatdata
-              :fields '~fields
-              :type :user
-              :name '~(or condition-name 
-                          ;; provide a default field-name: ????
-                          (keyword (apply str (interpose '- (map name (concat fields (list (gensym ""))))))))})
+             (merge {:expr (fn [] ~(quote-condition-expression expr)),;; wrap in a fn, so that they are not 'accidentially' computed when accessing the condition-metatdata
+                     :fields '~fields
+                     :type :user
+                     ;:name '~(or condition-name 
+                     ;            ;; provide a default field-name: ????
+                     ;            (keyword (apply str (interpose '- (map name (concat fields (list (gensym ""))))))))
+                     }
+                    '~(let-> m metadata
+                             (apply hash-map m)
+                             (rename-keys m {:return-fields :as})
+                             (map (fn [[k v]] (cond (= k :as) [k, (if (sequential? v) 
+                                                                    (if (empty? v) 
+                                                                      (throw-arg ":return-fields cannot be empty")
+                                                                      v)
+                                                                    (list v))]
+                                                    :else [k, v]))
+                                  m)
+                             (into {} m))))
           ([~tuple-sym]
              ~fn-expr)))))
 
@@ -150,6 +164,7 @@
   [field-name]
   (fn ([] {:expr (clojure.core/unquote field-name)
            :fields (list field-name)
+           :return-fields (list field-name)
            :type :identity
            :name field-name})
     ([fields];; should test that field_name is included in fields,

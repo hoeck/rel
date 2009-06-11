@@ -71,17 +71,17 @@ Defaults to (= n 2)."
 
 (def rowsn split-every)
 
-
 ;; -> clojure.core/partition
 (defn
   #^{:test #(let [x '(1 2 3 a b c)]
              (and (= (apply interleave (partition-nth x)) x)
               (= (apply interleave (partition-nth x 3)) x)))
      :doc "Inverse function to `interleave', defaults to (= n 2)."}
-  partition-nth
+  unzip
   ([s] (partition-nth 2 s))
   ([n s] (map #(take-nth n (nthnext s %)) (range n))))
 
+(def partition-nth unzip)
 
 (defn even-elements "Return al even elements of a seq, eql to (take-nth 2 s)." [s] (take-nth 2 s))
 
