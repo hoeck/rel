@@ -125,12 +125,13 @@
                      }
                     '~(let-> m metadata
                              (apply hash-map m)
-                             (rename-keys m {:return-fields :as})
-                             (map (fn [[k v]] (cond (= k :as) [k, (if (sequential? v) 
-                                                                    (if (empty? v) 
-                                                                      (throw-arg ":return-fields cannot be empty")
-                                                                      v)
-                                                                    (list v))]
+                             (rename-keys m {:as :return-fields})
+                             (map (fn [[k v]] (cond (= k :return-fields) 
+                                                      [k, (if (sequential? v) 
+                                                            (if (empty? v) 
+                                                              (throw-arg ":return-fields cannot be empty")
+                                                              v)
+                                                            (list v))]
                                                     :else [k, v]))
                                   m)
                              (into {} m))))

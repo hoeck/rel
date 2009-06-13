@@ -98,7 +98,6 @@
   clojure.lang.Seqable
   [R fields & opts]
   ;; lazy index
-  (def _ddd [R, fields])
   (let [index-map (apply lazy-hash-map* (mapcat #(list %  (delay (set-index R %))) fields))]
     index-map))
 
@@ -267,7 +266,7 @@
     (let [exprs (read-expressions exprs)
           identity-expr? #(= (:type (condition-meta %)) :identity)
           complex-exprs (filter (complement identity-expr?) exprs)
-          all-projected-fields (map #(:name (condition-meta %)) exprs)]
+          all-projected-fields (map #(first (:return-fields (condition-meta %))) exprs)]
       (project-identity (if (seq complex-exprs)
                           (apply project-expression R complex-exprs)
                           R)
@@ -379,11 +378,12 @@
 (defmethod fjoin :clojure [R c] ;; much like project with an expression, but allows 1..n joins instead of 1..1 only
   ;; c is a h.r.condition wich must return a seq or set of tuples or nil
   ;; when calling f without a tuple, then it should return its metadata
-  (let [new-fields nil]
-    (Relation. (merge {} {:fields (concat (fields R) (:return-fields (condition-meta c)))})
-               {'seq '_
-                'get '_
-                'count '_})))
+  (let [new-field (first (:return-fields (condition-meta c))) ;; assume only one return field
+        fjoin-tuple (fn fjoin-tuple [tup] (map (partial assoc tup new-field) (c tup)))]
+    (Relation. (merge {} {:fields (concat (fields R) (list new-field))})
+               {'seq (fn seq-fn [_] (seq (set (mapcat fjoin-tuple R))))
+                'get (fn [_ tup] (if (contains? R tup) (fjoin-tuple R)))
+                'count (fn [this] (count (.seq this)))})))
 
 (defmethod xproduct :clojure [R S]
   (let [cross-tuple (fn [r-tup] (map #(merge r-tup %) S))]

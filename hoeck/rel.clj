@@ -260,7 +260,7 @@ currently bound to *relations*"
 
 
 (def *pretty-print-relation-opts* {:max-lines 60, :max-colsize 80, :max-linesize 200 :min-colsize 1})
-;;  :max-lines =^ *print-lenght*
+;;  :max-lines =^ *print-length*
 
 (defn pretty-print-relation
   "Print a relation pretty readably to :writer (default *out*), try 
