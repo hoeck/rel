@@ -266,7 +266,7 @@
     (let [exprs (read-expressions exprs)
           identity-expr? #(= (:type (condition-meta %)) :identity)
           complex-exprs (filter (complement identity-expr?) exprs)
-          all-projected-fields (map #(first (:return-fields (condition-meta %))) exprs)]
+          all-projected-fields (map #(:name (condition-meta %)) exprs)]
       (project-identity (if (seq complex-exprs)
                           (apply project-expression R complex-exprs)
                           R)
@@ -378,7 +378,7 @@
 (defmethod fjoin :clojure [R c] ;; much like project with an expression, but allows 1..n joins instead of 1..1 only
   ;; c is a h.r.condition wich must return a seq or set of tuples or nil
   ;; when calling f without a tuple, then it should return its metadata
-  (let [new-field (first (:return-fields (condition-meta c))) ;; assume only one return field
+  (let [new-field (:name (condition-meta c))
         fjoin-tuple (fn fjoin-tuple [tup] (map (partial assoc tup new-field) (c tup)))]
     (Relation. (merge {} {:fields (concat (fields R) (list new-field))})
                {'seq (fn seq-fn [_] (seq (set (mapcat fjoin-tuple R))))

@@ -125,13 +125,9 @@
                      }
                     '~(let-> m metadata
                              (apply hash-map m)
-                             (rename-keys m {:as :return-fields})
-                             (map (fn [[k v]] (cond (= k :return-fields) 
-                                                      [k, (if (sequential? v) 
-                                                            (if (empty? v) 
-                                                              (throw-arg ":return-fields cannot be empty")
-                                                              v)
-                                                            (list v))]
+                             (rename-keys m {:as :name})
+                             (map (fn [[k v]] (cond (= k :name) 
+                                                      [k, (or v (throw-arg ":return-fields cannot be empty"))]
                                                     :else [k, v]))
                                   m)
                              (into {} m))))
@@ -165,7 +161,7 @@
   [field-name]
   (fn ([] {:expr (clojure.core/unquote field-name)
            :fields (list field-name)
-           :return-fields (list field-name)
+           :name field-name
            :type :identity
            :return-field (list field-name)})
     ([fields];; should test that field_name is included in fields,
