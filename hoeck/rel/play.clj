@@ -1,4 +1,66 @@
 
+(ns prolog
+  (:use [clojure.contrib.except :only [throwf]])
+  (:import (alice.tuprolog Term Struct Var)))
+
+(defn anonymous-var? [expr]
+  (= '_ expr))
+
+(defn get-variable-name [expr]
+  (and (symbol? expr)
+       (let [name (name expr)]
+             (or (and (-> name first .charValue Character/isUpperCase) name)
+                 (and (< 1 (count name)) (.startsWith name "?") (.substring name 1))))))
+
+(defn make-term [expr]
+  (if (list? expr)
+    (if (empty? expr) 
+      (alice.tuprolog.Struct.) ;; empty list
+      (let [[head tail] expr]
+        (if (symbol? head)
+          (let [args (into-array Term (map make-term tail))]
+            (alice.tuprolog.Struct. (name head) args))
+          (throwf "first item in predicate form is not a predicate name (symbol) but %s of type %s"
+                  (print-str expr)
+                  (print-str (type expr))))))
+    (cond (float? expr) (alice.tuprolog.Double. expr)
+          (integer? expr) (alice.tuprolog.Long. (long expr)) ;; may overflow
+          (anonymous-var? expr) (alice.tuprolog.Var.)
+          :else (if-let [varname (get-variable-name expr)]
+                  (alice.tuprolog.Var. varname)
+                  (cond (or (symbol? expr) (keyword? expr)) (alice.tuprolog.Struct. (name expr))
+                        (string? expr) (alice.tuprolog.Struct. expr)
+                        :else (throwf "Cannot create Term from %s of type %s" 
+                                      (print-str expr) 
+                                      (print-str (type expr))))))))
+
+
+
+
+(make-term '((append X Y) (foo 1)))
+
+
+
+
+(let [e (alice.tuprolog.Prolog.)]
+  ( .setTheory e (alice.tuprolog.Theory. "aaa(1,2,3,4,5,6,7,8,9,10,11,12,13).
+aaa(1,2,3,4,5,6,7,8,9,10,11,13,14)."))
+  (.solve e "aaa(X,_,_,_,_,_,_,_,_,_,_,Y,1)."))
+    
+(doc into-array)
+-------------------------
+clojure.core/into-array
+([aseq] [type aseq])
+  Returns an array with components set to the values in aseq. The array's
+  component type is type if provided, or the type of the first value in
+  aseq if present, or Object. All values in aseq must be compatible with
+  the component type. Class objects for the primitive types can be obtained
+  using, e.g., Integer/TYPE.
+
+
+
+
+
 (in-ns 'hoeck.rel.reflection)
 
 
