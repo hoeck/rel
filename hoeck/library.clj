@@ -776,6 +776,10 @@ on keywords without `:'"
 (defn jfn [name]
   #(apply jcall %1 name %&))
 
+(defn jctor [class & args]
+  (clojure.lang.Reflector/invokeConstructor class
+    (if args (to-array args) clojure.lang.RT/EMPTY_ARRAY)))
+
 ;((jfn 'substring) "fred" 2 3)
 ;((jfn 'toUpperCase) "fred") 
 
