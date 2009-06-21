@@ -1,10 +1,11 @@
 
 (ns hoeck.prolog
-  (:use [hoeck.library :only [ifn-arity, fproxy, throw-arg-if, jcall]]
+  (:use [hoeck.library :only [ifn-arity, fproxy, throw-arg-if, jcall, pipe]]
         [clojure.contrib.except :only [throwf]]
         [clojure.contrib.def :only [defnk]]
-        [clojure.set :only [difference]])
-  (:import (alice.tuprolog Prolog Term Struct Var Library PrimitiveInfo)))
+        [clojure.set :only [difference]]
+        clojure.contrib.test-is)
+  (:import (alice.tuprolog Prolog Term Struct Var Library PrimitiveInfo Theory)))
 
 (defn- anonymous-var?
   "Return true if expr is the anonymous-var-expression: '_"
@@ -26,13 +27,16 @@
 (defn- make-term 
   "Create a Tuprolog Term from a given s-expr."
   [expr]
-  (if (list? expr)
+  (if (seq? expr)
     (if (empty? expr) 
       (alice.tuprolog.Struct.) ;; empty list
       (let [[head & tail] expr]
-        (if (or (= :- head) (symbol? head)) ;; :- denotes a clause
+        (if (or (= :- head) 
+                (= '<- head)
+                (= "," head)
+                (symbol? head)) ;; :- denotes a clause in tuprolog
           (let [args (into-array Term (map make-term tail))]
-            (alice.tuprolog.Struct. (str head) args))
+            (alice.tuprolog.Struct. (if (= head '<-) ":-" (str head)) args))
           (throwf "first item in predicate form is not a predicate name (symbol or :-) but: `%s' of type `%s'"
                   (print-str expr)
                   (print-str (type expr))))))
@@ -47,7 +51,7 @@
                                       (print-str expr) 
                                       (print-str (type expr))))))))
 
-(def tuprolog-library-max-arity 10)
+(def #^{:private true} tuprolog-library-max-arity 10)
 
 (defn- lib-generate-sig [name paramtype returntype]
   (map #(vector (symbol (format "%s_%s" name %))
@@ -55,7 +59,7 @@
                 returntype)
        (iterate inc 1)))
 
-(defmacro gen-clojure-library-interface
+(defmacro #^{:private true} gen-clojure-library-interface
   "Generate an interface according to the tuprolog library documentation.
   boolean predicate_N ( Term{N} ) and 
   Term    functor_N   ( Term{N} ) for each N = 1 .. tuprolog-library-max-arity."
@@ -70,7 +74,7 @@
 ;; (binding [*compile-path* "g:\\clojure\\classes"] (compile 'hoeck.prolog))
 
 
-(defnk make-library
+(defnk #^{:private true} make-library
   "Generate a Tuprolog Library Class with _one_ implemented functor or predicate.
   A predicate returns a boolean and a functor returns a Term.
   Both take up to tuprolog-library-max-arity Term args. Throwing Exceptions in
@@ -122,7 +126,7 @@
                                         (into-array java.util.List [(filter (memfn isDirective) pi)
                                                                     (filter (memfn isPredicate) pi)
                                                                     (filter (memfn isFunctor) pi)])))}
-                   (if theory {"getTheory" (fn [_] theory)})))))
+                    (if theory {"getTheory" (fn [_] theory)})))))
 
 ;; example
 (comment (let [pl (Prolog.)]
@@ -137,11 +141,13 @@
   (Term/createTerm str))
 
 (defn- term-properties [t]
-  (remove nil? (map #(if (jcall t (val %)) (key %))
+  (remove nil? (map #(if (try (jcall t (val %))
+                              (catch Exception e nil))
+                       (key %))
                     '{:compound isCompound,
                       :atomic isAtomic,
                       :emptylt isEmptyList,
-                      :lt isList,
+                      :list isList,
                       :primitive isPrimitive,
                       :clause isClause,
                       :struct isStruct,
@@ -150,11 +156,92 @@
                       :number isNumber,
                       :var isVar})))
 
-(comment (map term-properties [(read-term "p(X,Y) :- p(1,1)")
-                               (make-term '(:- (p X Y) (p 1 1)))]))
+;; A set of rules (as alice.tuprolog.Term)
+;; `<-' and `?-' operate on that
 
-(def *prolog*) ;; `<-', `prolog' and `?-' operate on that
+(def *rules* (atom #{}))
 
-(defn add-clause [term]
-  (make-term (concat :- term)))
+(defn clear []
+  (swap! *rules* (constantly #{})))
+
+(defn <-* [rule]
+  (swap! *rules* conj rule))
+
+(defmacro <- [& body]
+  `(<-* '~body))
+
+(defn- make-clojure-term [term]
+  (let [get-name (fn [] (-> term .getName symbol))]
+    (condp instance? term
+      alice.tuprolog.Number (condp instance? term
+                              alice.tuprolog.Double (.doubleValue term)
+                              alice.tuprolog.Float (.floatValue term)
+                              alice.tuprolog.Long (.longValue term)
+                              alice.tuprolog.Int (.intValue term))
+      alice.tuprolog.Struct (let [get-terms (fn [] (map #(make-clojure-term (.getTerm term %)) (range 0 (.getArity term))))]
+                              (cond (.isAtom term) (get-name)
+                                    (.isClause term) (cons '<- (get-terms))
+                                    (.isCompound term) (cons (get-name) (get-terms))
+                                    (.isList term) (throwf "todo")))
+      alice.tuprolog.Var (cond (.isAnonymous term) '_
+                               :else (get-name)))))
+
+;;example: (make-clojure-term (make-term '(:- (a X Y) (a 1 aaa bbb ccc))))
+
+(defn- make-theory [terms]
+  (Theory. (if (empty? terms)
+             ""
+             (Struct. (into-array terms)))))
+
+(defn- term-from-rule
+  [rule]
+  (make-term (if (next rule) 
+                       (cons :- rule) ;; a clause
+                       (first rule))))
+
+(defn- solve ;; return a lazy seq of SolveInfo answers
+  ([query] (solve query @*rules*))
+  ([query rules]
+     (let [pr (Prolog.)]
+       (.setTheory pr (make-theory (map term-from-rule rules)))
+       (lazy-seq (let [si (.solve pr query)]
+                   (if (.isSuccess si)
+                     (cons si (take-while identity 
+                                          (repeatedly #(when (.hasOpenAlternatives pr) 
+                                                         (.solveNext pr)))))))))))
+
+;(def solveinfo
+;     (let [x (solve (make-term '(p 1 1)) (map make-term '((p 1 1) (p 2 1) (p 3 2))))]
+;       ;;(.getName (first (.getBindingVars (first x))))
+;       x))
+
+(defn- solveinfo-results
+  "Return a hashmap of variable->value from a given SolveInfo. Return
+  a empty hashmap, if the solution binds no variables."
+  [solveinfo]
+  (if (or (nil? solveinfo) (not (.isSuccess solveinfo)))
+    nil
+    (apply hash-map
+           (mapcat #(list (symbol (.getName %)) (make-clojure-term (.getTerm %)))
+                   (.getBindingVars solveinfo)))))
+
+(defn ?-* [& query-term] 
+  (map solveinfo-results (solve (make-term (if (next query-term)
+                                             (cons "," query-term)
+                                             (first query-term)))
+                                @*rules*)))
+
+(defmacro ?- [& query]
+  `(?-* '~@query))
+
+;;;;
+(clear)
+(<- (p 1))
+(<- (p 2))
+(<- (p 4 4))
+@*rules*
+(<- (p X X) (p X) (p Y))
+(?- (p X Y) (p X) (p Y))
+(?- (p X X))
+(?-* '(p X X))
 
