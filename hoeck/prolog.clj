@@ -161,16 +161,22 @@
 
 (def *rules* (atom #{}))
 
-(defn clear []
+(defn clear
+  "Remove all rules from *rules*"
+  []
   (swap! *rules* (constantly #{})))
 
-(defn <-* [rule]
+(defn <-* 
+  "Add a rule to *rules*"
+  [rule]
   (swap! *rules* conj rule))
 
 (defmacro <- [& body]
   `(<-* '~body))
 
-(defn- make-clojure-term [term]
+(defn- make-clojure-term
+  "Make a clojure term from a alice.tuprolog.Term."
+  [term]
   (let [get-name (fn [] (-> term .getName symbol))]
     (condp instance? term
       alice.tuprolog.Number (condp instance? term
@@ -188,22 +194,29 @@
 
 ;;example: (make-clojure-term (make-term '(:- (a X Y) (a 1 aaa bbb ccc))))
 
-(defn- make-theory [terms]
+(defn- make-theory
+  "Create a alice.tuprolog.Theory from a seq of alice.tuprolog.Terms."
+  [terms]
   (Theory. (if (empty? terms)
              ""
              (Struct. (into-array terms)))))
 
-(defn- term-from-rule
-  [rule]
-  (make-term (if (next rule) 
-                       (cons :- rule) ;; a clause
-                       (first rule))))
+(defn- expand-rule [op rule]
+  (reduce #(list op %2 %1) (reverse rule)))
+
+(defn- make-term-from-rule [rule] ;; '((jealous X Y) (loves X Z) (loves Y Z))
+  (condp = (count rule)
+    0 (make-term ())
+    1 (make-term (first rule))
+    2 (make-term (cons :- rule))
+    (make-term (cons :- (list (first rule) 
+                              (expand-rule "," (next rule)))))))
 
 (defn- solve ;; return a lazy seq of SolveInfo answers
   ([query] (solve query @*rules*))
   ([query rules]
      (let [pr (Prolog.)]
-       (.setTheory pr (make-theory (map term-from-rule rules)))
+       (.setTheory pr (make-theory (map make-term-from-rule rules)))
        (lazy-seq (let [si (.solve pr query)]
                    (if (.isSuccess si)
                      (cons si (take-while identity 
@@ -225,14 +238,14 @@
            (mapcat #(list (symbol (.getName %)) (make-clojure-term (.getTerm %)))
                    (.getBindingVars solveinfo)))))
 
-(defn ?-* [& query-term] 
+(defn ?-* [& query-term]
   (map solveinfo-results (solve (make-term (if (next query-term)
                                              (cons "," query-term)
                                              (first query-term)))
                                 @*rules*)))
 
 (defmacro ?- [& query]
-  `(?-* '~@query))
+  `(apply ?-* '~query))
 
 ;;;;
 (clear)
@@ -244,4 +257,8 @@
 (?- (p X Y) (p X) (p Y))
 (?- (p X X))
 (?-* '(p X X))
+
+
+
+
 
