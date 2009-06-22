@@ -49,38 +49,41 @@
 (defn- make-term 
   "Create a Tuprolog Term from a given s-expr."
   [expr]
-  (if (seq? expr)
-    (if (empty? expr) 
-      (alice.tuprolog.Struct.) ;; empty list
-      (let [[head & tail] expr]
-        (cond (= head '=)
-                (fold-left-struct "=" tail)
-              (= head '<-) ;; clause operator
-                (condp = (count tail)
-                  0 (throwf "\"<-\" rule needs at least one argument.")
-                  1 (make-term (first tail))
-                  2 (Struct. ":-" (make-term (first tail)) (make-term (second tail))) ;; ":-" is the clause-operator in tuprolog
-                  (Struct. ":-" (make-term (first tail)) (fold-right-struct "," (next tail)))) ;; "," is the "and" operator in tuprolog              
-              (= head '?-) ;; query operator
-                (condp = (count tail)
-                  0 (throwf "',' rule needs at least one argument")
-                  1 (make-term (first tail))
-                  (fold-right-struct "," tail))
-              (symbol? head)
-                (Struct. (str head) (into-array Term (map make-term tail)))
-              :else (throwf "first item in predicate form is not a predicate name (symbol or <- or , or ?-) but: `%s' of type `%s'"
-                            (print-str expr)
-                            (print-str (type expr))))))
-    (cond (float? expr) (alice.tuprolog.Double. expr)
-          (integer? expr) (alice.tuprolog.Long. (long expr)) ;; may overflow
-          (anonymous-var? expr) (alice.tuprolog.Var.)
-          :else (if-let [varname (get-variable-name expr)]
-                  (alice.tuprolog.Var. varname)
-                  (cond (or (symbol? expr) (keyword? expr)) (alice.tuprolog.Struct. (name expr))
-                        (string? expr) (alice.tuprolog.Struct. expr)
-                        :else (throwf "Cannot create Term from `%s' of type `%s'" 
-                                      (print-str expr)
-                                      (print-str (type expr))))))))
+  (cond
+    (vector? expr)
+      (Struct. (into-array Term (map make-term expr)))
+    (seq? expr)
+      (if (empty? expr)
+        (alice.tuprolog.Struct.) ;; empty list
+        (let [[head & tail] expr]
+          (cond (= head '=)
+                  (fold-left-struct "=" tail)
+                (= head '<-) ;; clause operator
+                  (condp = (count tail)
+                    0 (throwf "\"<-\" rule needs at least one argument.")
+                    1 (make-term (first tail))
+                    2 (Struct. ":-" (make-term (first tail)) (make-term (second tail))) ;; ":-" is the clause-operator in tuprolog
+                    (Struct. ":-" (make-term (first tail)) (fold-right-struct "," (next tail)))) ;; "," is the "and" operator in tuprolog              
+                (= head '?-) ;; query operator
+                  (condp = (count tail)
+                    0 (throwf "',' rule needs at least one argument")
+                    1 (make-term (first tail))
+                    (fold-right-struct "," tail))
+                (symbol? head)
+                  (Struct. (str head) (into-array Term (map make-term tail)))
+                :else (throwf "first item in predicate form is not a predicate name (symbol or <- or , or ?-) but: `%s' of type `%s'"
+                              (print-str expr)
+                              (print-str (type expr))))))
+    (float? expr)         (alice.tuprolog.Double. expr)
+    (integer? expr)       (alice.tuprolog.Long. (long expr)) ;; may overflow
+    (anonymous-var? expr) (alice.tuprolog.Var.)
+    :else (if-let [varname (get-variable-name expr)]
+            (alice.tuprolog.Var. varname)
+            (cond (or (symbol? expr) (keyword? expr)) (alice.tuprolog.Struct. (name expr))
+                  (string? expr) (alice.tuprolog.Struct. expr)
+                  :else (throwf "Cannot create Term from `%s' of type `%s'" 
+                                (print-str expr)
+                                (print-str (type expr)))))))
 
 (def #^{:private true} tuprolog-library-max-arity 10)
 
