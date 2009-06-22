@@ -240,7 +240,7 @@
 
 (defn ?-* [& query-term]
   (map solveinfo-results (solve (make-term (if (next query-term)
-                                             (cons "," query-term)
+                                             (expand-rule ","  query-term)
                                              (first query-term)))
                                 @*rules*)))
 
@@ -257,8 +257,12 @@
 (?- (p X Y) (p X) (p Y))
 (?- (p X X))
 (?-* '(p X X))
+(?- (p X) (p Y) (= X Y))
 
+;; for a short&good intruduction to prolog visit: http://www.learnprolognow.org/
 
-
-
+;; no solution (note: no endless recursion)
+(?- (= (father X) X))
+;; one solution
+(?- (= (father X) X))
 
