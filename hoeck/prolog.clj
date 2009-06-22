@@ -5,15 +5,17 @@
         [clojure.contrib.def :only [defnk]]
         [clojure.set :only [difference]]
         clojure.contrib.test-is)
+  (:load  "prolog-tests")
   (:import (alice.tuprolog Prolog Term Struct Var Library PrimitiveInfo Theory)))
 
 (defn- anonymous-var?
-  "Return true if expr is the anonymous-var-expression: '_"
+  "Return true if expr is the anonymous-var-expression: '_
+  Otherwise return false."
   [expr]
   (= '_ expr))
 
 (defn- get-variable-name
-  "Return fals if expr is not a symbol representing a varname.
+  "Return false if expr is not a symbol representing a varname.
   Varnames are symbols with either a capital starting letter or
   starting with a question mark. Example:
   (map get-variable-name '(A ?A Bee ?bee (A) ? _ :x))
@@ -22,7 +24,27 @@
   (and (symbol? expr)
        (let [name (name expr)]
              (or (and (-> name first .charValue Character/isUpperCase) name)
-                 (and (< 1 (count name)) (.startsWith name "?") (.substring name 1))))))
+                 (and (< 1 (count name)) (.startsWith name "?")
+                      (let [vname (.substring name 1)]
+                        (and vname
+                             (Character/isLetter (first vname))
+                             vname)))))))
+
+(defn- fold-right-struct
+  "ex: (fold-right-struct 'op '(1 2 3)) -> (op 1 (op 2 3))
+  used to create nested structs. The ',' (and) operator is expanded using this function."
+  [op args] ;; ","
+  (let [r (reverse args)
+        f (reverse (take 2 r))]
+    (reduce #(Struct. op (make-term %2) %1) (Struct. op (into-array Term (map make-term f))) (drop 2 r))))
+
+(defn- fold-left-struct
+  "ex: (fold-left-struct 'op '(1 2 3)) -> (op (op 1 2) 3)
+  used to create nested structs. The '=' operator expands using this."
+  [op args] ;; "="
+  (let [r args
+        f (take 2 r)]
+    (reduce #(Struct. op  %1 (make-term %2)) (Struct. op (into-array Term (map make-term f))) (drop 2 r))))
 
 (defn- make-term 
   "Create a Tuprolog Term from a given s-expr."
@@ -31,15 +53,24 @@
     (if (empty? expr) 
       (alice.tuprolog.Struct.) ;; empty list
       (let [[head & tail] expr]
-        (if (or (= :- head) 
-                (= '<- head)
-                (= "," head)
-                (symbol? head)) ;; :- denotes a clause in tuprolog
-          (let [args (into-array Term (map make-term tail))]
-            (alice.tuprolog.Struct. (if (= head '<-) ":-" (str head)) args))
-          (throwf "first item in predicate form is not a predicate name (symbol or :-) but: `%s' of type `%s'"
-                  (print-str expr)
-                  (print-str (type expr))))))
+        (cond (= head '=)
+                (fold-left-struct "=" tail)
+              (= head '<-) ;; clause operator
+                (condp = (count tail)
+                  0 (throwf "\"<-\" rule needs at least one argument.")
+                  1 (make-term (first tail))
+                  2 (Struct. ":-" (make-term (first tail)) (make-term (second tail))) ;; ":-" is the clause-operator in tuprolog
+                  (Struct. ":-" (make-term (first tail)) (fold-right-struct "," (next tail)))) ;; "," is the "and" operator in tuprolog              
+              (= head '?-) ;; query operator
+                (condp = (count tail)
+                  0 (throwf "',' rule needs at least one argument")
+                  1 (make-term (first tail))
+                  (fold-right-struct "," tail))
+              (symbol? head)
+                (Struct. (str head) (into-array Term (map make-term tail)))
+              :else (throwf "first item in predicate form is not a predicate name (symbol or <- or , or ?-) but: `%s' of type `%s'"
+                            (print-str expr)
+                            (print-str (type expr))))))
     (cond (float? expr) (alice.tuprolog.Double. expr)
           (integer? expr) (alice.tuprolog.Long. (long expr)) ;; may overflow
           (anonymous-var? expr) (alice.tuprolog.Var.)
@@ -48,7 +79,7 @@
                   (cond (or (symbol? expr) (keyword? expr)) (alice.tuprolog.Struct. (name expr))
                         (string? expr) (alice.tuprolog.Struct. expr)
                         :else (throwf "Cannot create Term from `%s' of type `%s'" 
-                                      (print-str expr) 
+                                      (print-str expr)
                                       (print-str (type expr))))))))
 
 (def #^{:private true} tuprolog-library-max-arity 10)
@@ -137,7 +168,10 @@
                                             true)))
            (.getSolution (.solve pl "foo(A)."))))
 
-(defn- read-term [str] ;; to debug and inspect how tuprolog creates terms
+(defn- read-term
+  "creates a term from a string (eg: \"p(X) = p(1)\")
+  to debug and inspect how tuprolog creates terms"
+  [str] ;; 
   (Term/createTerm str))
 
 (defn- term-properties [t]
@@ -166,10 +200,10 @@
   []
   (swap! *rules* (constantly #{})))
 
-(defn <-* 
+(defn <-*
   "Add a rule to *rules*"
   [rule]
-  (swap! *rules* conj rule))
+  (swap! *rules* conj (cons '<- rule)))
 
 (defmacro <- [& body]
   `(<-* '~body))
@@ -192,41 +226,23 @@
       alice.tuprolog.Var (cond (.isAnonymous term) '_
                                :else (get-name)))))
 
-;;example: (make-clojure-term (make-term '(:- (a X Y) (a 1 aaa bbb ccc))))
-
 (defn- make-theory
   "Create a alice.tuprolog.Theory from a seq of alice.tuprolog.Terms."
   [terms]
   (Theory. (if (empty? terms)
              ""
-             (Struct. (into-array terms)))))
-
-(defn- expand-rule [op rule]
-  (reduce #(list op %2 %1) (reverse rule)))
-
-(defn- make-term-from-rule [rule] ;; '((jealous X Y) (loves X Z) (loves Y Z))
-  (condp = (count rule)
-    0 (make-term ())
-    1 (make-term (first rule))
-    2 (make-term (cons :- rule))
-    (make-term (cons :- (list (first rule) 
-                              (expand-rule "," (next rule)))))))
+             (Struct. (into-array Term terms)))))
 
 (defn- solve ;; return a lazy seq of SolveInfo answers
   ([query] (solve query @*rules*))
   ([query rules]
      (let [pr (Prolog.)]
-       (.setTheory pr (make-theory (map make-term-from-rule rules)))
+       (.setTheory pr (make-theory (map make-term rules)))
        (lazy-seq (let [si (.solve pr query)]
                    (if (.isSuccess si)
                      (cons si (take-while identity 
                                           (repeatedly #(when (.hasOpenAlternatives pr) 
                                                          (.solveNext pr)))))))))))
-
-;(def solveinfo
-;     (let [x (solve (make-term '(p 1 1)) (map make-term '((p 1 1) (p 2 1) (p 3 2))))]
-;       ;;(.getName (first (.getBindingVars (first x))))
-;       x))
 
 (defn- solveinfo-results
   "Return a hashmap of variable->value from a given SolveInfo. Return
@@ -239,30 +255,34 @@
                    (.getBindingVars solveinfo)))))
 
 (defn ?-* [& query-term]
-  (map solveinfo-results (solve (make-term (if (next query-term)
-                                             (expand-rule ","  query-term)
-                                             (first query-term)))
+  (make-term (cons '?- query-term))
+  (map solveinfo-results (solve (make-term (cons '?- query-term))
                                 @*rules*)))
 
 (defmacro ?- [& query]
   `(apply ?-* '~query))
 
 ;;;;
-(clear)
-(<- (p 1))
-(<- (p 2))
-(<- (p 4 4))
-@*rules*
-(<- (p X X) (p X) (p Y))
-(?- (p X Y) (p X) (p Y))
-(?- (p X X))
-(?-* '(p X X))
-(?- (p X) (p Y) (= X Y))
+(comment
 
-;; for a short&good intruduction to prolog visit: http://www.learnprolognow.org/
+  (clear)
+  (<- (p 1))
+  (<- (p 2))
+  (<- (p 4 4))
+  @*rules*
+  (<- (p X X) (p X) (p Y))
+  (?- (p X Y) (p X) (p Y))
+  (?- (p X X))
+  (?-* '(p X X))
+  (?- (p X) (p Y) (= X Y))
+  (?- (p X))
+  ;; for a short&good intruduction to prolog visit: http://www.learnprolognow.org/
 
-;; no solution (note: no endless recursion)
-(?- (= (father X) X))
-;; one solution
-(?- (= (father X) X))
+  ;; no solution (note: no endless recursion)
+  (?- (= (father X) X))
+  ;; one solution
+  (?- (= (father X) Y))
+
+)
+
 
