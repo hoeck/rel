@@ -51,7 +51,9 @@
   [expr]
   (cond
     (vector? expr)
-      (Struct. (into-array Term (map make-term expr)))
+      (if (= (nth expr 1 nil) '.)
+        (Struct. (make-term (nth expr 0)) (make-term (nth expr 2)))
+        (Struct. (into-array Term (map make-term expr))))
     (seq? expr)
       (if (empty? expr)
         (alice.tuprolog.Struct.) ;; empty list
