@@ -5,7 +5,6 @@
         [clojure.contrib.def :only [defnk]]
         [clojure.set :only [difference]]
         clojure.contrib.test-is)
-  (:load  "prolog-tests")
   (:import (alice.tuprolog Prolog Term Struct Var Library PrimitiveInfo Theory)))
 
 (defn- anonymous-var?
@@ -30,6 +29,8 @@
                              (Character/isLetter (first vname))
                              vname)))))))
 
+(declare make-term)
+
 (defn- fold-right-struct
   "ex: (fold-right-struct 'op '(1 2 3)) -> (op 1 (op 2 3))
   used to create nested structs. The ',' (and) operator is expanded using this function."
@@ -51,9 +52,8 @@
   [expr]
   (cond
     (vector? expr)
-      (if (= (nth expr 1 nil) '.)
-        (Struct. (make-term (nth expr 0)) (make-term (nth expr 2)))
-        (Struct. (into-array Term (map make-term expr))))
+      ;; to create lists use [1 2 3] or (. 1 (. 2 (. 3 [])))
+      (Struct. (into-array Term (map make-term expr)))
     (seq? expr)
       (if (empty? expr)
         (alice.tuprolog.Struct.) ;; empty list
@@ -224,10 +224,10 @@
                               alice.tuprolog.Long (.longValue term)
                               alice.tuprolog.Int (.intValue term))
       alice.tuprolog.Struct (let [get-terms (fn [] (map #(make-clojure-term (.getTerm term %)) (range 0 (.getArity term))))]
-                              (cond (.isAtom term) (get-name)
+                              (cond (.isList term) (vec (map make-clojure-term (-> term .listIterator iterator-seq)))
+                                    (.isAtom term) (get-name)
                                     (.isClause term) (cons '<- (get-terms))
-                                    (.isCompound term) (cons (get-name) (get-terms))
-                                    (.isList term) (throwf "todo")))
+                                    (.isCompound term) (cons (get-name) (get-terms))))
       alice.tuprolog.Var (cond (.isAnonymous term) '_
                                :else (get-name)))))
 
@@ -266,6 +266,9 @@
 
 (defmacro ?- [& query]
   `(apply ?-* '~query))
+
+
+(load  "prolog-tests")
 
 ;;;;
 (comment

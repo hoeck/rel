@@ -17,7 +17,7 @@
     (is (every? false? (map get-variable-name non-vars))) "no varname corner-cases"))
 
 
-(deftest term-construction-deconstruction
+(deftest term-construction
   ;; comparing clojure term creation with what
   ;; the builtin tuprolog parse constructs
   ;; compare the string outputs of the two resulting Terms instead
@@ -27,6 +27,7 @@
   (are (= (str (read-term _1)) (str (make-term _2)))
        ;; atoms
        "1" 1
+       "1.0001" 1.0001
        "p" 'p
        ;; won't work: "single-atom" 'single-atom due: "-" is a prolog operator
        "single_atom" 'single_atom
@@ -53,7 +54,26 @@
        '(<- (predicate2 X 1)
             (predicate2 (p X) (a 1))
             (= X (a Y) (b X))
-            (b Y))))
+            (b Y))
+       ;; lists
+       "[]" []
+       "[a]" '[a]
+       "[a,b,c,d]" '[a b c d]
+       "[a|3]" '(. a 3)
+       "[p(X,[a,b]),99]" '[(p X [a b]) 99]
+       "[p(X,[a,b])|99]" '(. (p X [a b]) 99)))
+
+(deftest term-deconstruction
+  ;; testing the make-clojure-term function
+  (are (= (make-clojure-term (make-term _1)) _1)
+       ;; atoms
+       1, 1.1, 'ppp, 'pred-a, 'predicate-1, 'Var, 'X
+       ;; predicates
+       '(p X) '(predicate X Y 1) '(p (p X) Y) '(p (q (r (s X) (t X))))
+       ;; lists
+       [] [1 2 3] '[(pred X (func Y)) (func Y) 1 2]
+       ;; dotted lists
+       '(. 1 2)))
 
 
 ;; interface tests:
