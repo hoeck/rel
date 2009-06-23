@@ -60,8 +60,10 @@
        "[a]" '[a]
        "[a,b,c,d]" '[a b c d]
        "[a|3]" '(. a 3)
+       "[1,2,3,4|5]" '[1 2 3 4 & 5]
        "[p(X,[a,b]),99]" '[(p X [a b]) 99]
-       "[p(X,[a,b])|99]" '(. (p X [a b]) 99)))
+       "[p(X,[a,b])|99]" '(. (p X [a b]) 99)
+       "[p(X,[a,b])|99]" '[(p X [a b]) & 99]))
 
 (deftest term-deconstruction
   ;; testing the make-clojure-term function

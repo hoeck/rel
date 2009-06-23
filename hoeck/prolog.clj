@@ -35,17 +35,17 @@
   "ex: (fold-right-struct 'op '(1 2 3)) -> (op 1 (op 2 3))
   used to create nested structs. The ',' (and) operator is expanded using this function."
   [op args] ;; ","
-  (let [r (reverse args)
+  (let [r (map make-term (reverse args))
         f (reverse (take 2 r))]
-    (reduce #(Struct. op (make-term %2) %1) (Struct. op (into-array Term (map make-term f))) (drop 2 r))))
+    (reduce #(Struct. op %2 %1) (Struct. op (into-array Term f)) (drop 2 r))))
 
 (defn- fold-left-struct
   "ex: (fold-left-struct 'op '(1 2 3)) -> (op (op 1 2) 3)
   used to create nested structs. The '=' operator expands using this."
   [op args] ;; "="
-  (let [r args
+  (let [r (map make-term args)
         f (take 2 r)]
-    (reduce #(Struct. op  %1 (make-term %2)) (Struct. op (into-array Term (map make-term f))) (drop 2 r))))
+    (reduce #(Struct. op  %1 %2) (Struct. op (into-array Term f)) (drop 2 r))))
 
 (defn- make-term 
   "Create a Tuprolog Term from a given s-expr."
@@ -53,7 +53,11 @@
   (cond
     (vector? expr)
       ;; to create lists use [1 2 3] or (. 1 (. 2 (. 3 [])))
-      (Struct. (into-array Term (map make-term expr)))
+      ;; use & to separate the tail from the list
+      (let [c (count expr)]
+        (if (and (< 2 c) (= '& (nth expr (- c 2))))
+          (reduce #(Struct. %2 %1) (map make-term (remove '#{&} (reverse expr))))
+          (Struct. (into-array Term (map make-term expr)))))
     (seq? expr)
       (if (empty? expr)
         (alice.tuprolog.Struct.) ;; empty list
@@ -245,9 +249,10 @@
        (.setTheory pr (make-theory (map make-term rules)))
        (lazy-seq (let [si (.solve pr query)]
                    (if (.isSuccess si)
-                     (cons si (take-while identity 
-                                          (repeatedly #(when (.hasOpenAlternatives pr) 
-                                                         (.solveNext pr)))))))))))
+                     (cons si (pipe (repeatedly #(when (.hasOpenAlternatives pr) 
+                                                   (.solveNext pr)))
+                                    (take-while identity)
+                                    (filter #(.isSuccess %))))))))))
 
 (defn- solveinfo-results
   "Return a hashmap of variable->value from a given SolveInfo. Return

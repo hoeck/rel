@@ -1,44 +1,124 @@
 
-(ns prolog
-  (:use [clojure.contrib.except :only [throwf]])
-  (:import (alice.tuprolog Term Struct Var)))
+(use 'hoeck.prolog)
 
-(defn anonymous-var? [expr]
-  (= '_ expr))
 
-(defn get-variable-name [expr]
-  (and (symbol? expr)
-       (let [name (name expr)]
-             (or (and (-> name first .charValue Character/isUpperCase) name)
-                 (and (< 1 (count name)) (.startsWith name "?") (.substring name 1))))))
 
-(defn make-term [expr]
-  (if (list? expr)
-    (if (empty? expr) 
-      (alice.tuprolog.Struct.) ;; empty list
-      (let [[head tail] expr]
-        (if (symbol? head)
-          (let [args (into-array Term (map make-term tail))]
-            (alice.tuprolog.Struct. (name head) args))
-          (throwf "first item in predicate form is not a predicate name (symbol) but %s of type %s"
-                  (print-str expr)
-                  (print-str (type expr))))))
-    (cond (float? expr) (alice.tuprolog.Double. expr)
-          (integer? expr) (alice.tuprolog.Long. (long expr)) ;; may overflow
-          (anonymous-var? expr) (alice.tuprolog.Var.)
-          :else (if-let [varname (get-variable-name expr)]
-                  (alice.tuprolog.Var. varname)
-                  (cond (or (symbol? expr) (keyword? expr)) (alice.tuprolog.Struct. (name expr))
-                        (string? expr) (alice.tuprolog.Struct. expr)
-                        :else (throwf "Cannot create Term from %s of type %s" 
-                                      (print-str expr) 
-                                      (print-str (type expr))))))))
+(in-ns 'hoeck.prolog)
+
+(clear)
+@*rules*
+
+(<- (operator rename))
+(<- (operator select))
+(<- (operator project))
+
+(<- (relation r))
+(<- (relation s))
+(<- (relation t))
+
+(<- (condition c))
+
+(<- (valid X) (relation X))
+(<- (valid [O R & _])
+    
+    (valid R))
+
+
+(?- (valid [rename r]))
+
+(?- (relation X))
+(?- (operator X))
+
+(?- (valid [rename r]))
 
 
 
 
-(make-term '((append X Y) (foo 1)))
 
+
+
+
+
+
+
+
+
+
+
+
+
+(make-term '(pred (foo 1) X (append X Y)))
+
+
+
+0.25
+(defmacro <- [expr]
+  `(make-term '~expr))
+
+(<- (pred (foo 1) X (append X Y)))
+
+(def + 'foo)
+
+(gen-interface hoeck.rel.prolog
+
+(doc gen-interface)
+-------------------------
+clojure.core/gen-interface
+([& options])
+Macro
+  When compiling, generates compiled bytecode for an interface with
+  the given package-qualified :name (which, as all names in these
+  parameters, can be a string or symbol), and writes the .class file
+  to the *compile-path* directory.  When not compiling, does nothing.
+ 
+  In all subsequent sections taking types, the primitive types can be
+  referred to by their Java names (int, float etc), and classes in the
+  java.lang package can be used without a package qualifier. All other
+  classes must be fully qualified.
+ 
+  Options should be a set of key/value pairs, all except for :name are
+  optional:
+
+  :name aname
+
+  The package-qualified name of the class to be generated
+
+  :extends [interface ...]
+
+  One or more interfaces, which will be extended by this interface.
+
+  :methods [ [name [param-types] return-type], ...]
+
+  This parameter is used to specify the signatures of the methods of
+  the generated interface.  Do not repeat superinterface signatures
+  here.
+nil
+
+(let [x (proxy [clojure.lang.IFn] []
+          (invoke [] 'here)
+          (toString [] "here"))]
+  (list (x) (str x)))
+
+
+(def blz (into {} (map #(vec (.split % "," 2)) (line-seq (reader "c:\\temp\\blz.csv")))))
+
+(defn csv-2-map [filename delimiter]
+  (into {} (map #(vec (.split % delimiter 2)) (line-seq (reader filename)))))
+(def blz (csv-2-map "c:\\temp\\blz.csv" ","))
+(blz "10010010")
+
+
+
+(doc line-seq)
+-------------------------
+clojure.core/line-seq
+([rdr])
+  Returns the lines of text from rdr as a lazy sequence of strings.
+  rdr must implement java.io.BufferedReader.
+
+(use 'clojure.contrib.duck-streams)
+
+(zipmap (iterate inc 0) (line-seq (reader "c:\\hello.txt")))
 
 
 
