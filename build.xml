@@ -35,6 +35,7 @@
                 <path location="${src.dir}"/>
                 <path location="${clojure.jar}"/>
                 <path location="${lazymap.jar}"/>
+                <path location="${contrib.jar}"/>
             </classpath>
             <sysproperty key="clojure.compile.path" value="${classes.dir}"/>
             <arg value="hoeck.magic-map.MagicMap"/>

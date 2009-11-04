@@ -2,34 +2,30 @@
 (use 'hoeck.prolog)
 
 
-
 (in-ns 'hoeck.prolog)
+(use 'clojure.contrib.pprint)
 
 (clear)
-@*rules*
+(pprint @*rules*)
 
-(<- (operator rename))
-(<- (operator select))
-(<- (operator project))
+(defn add-facts [name facts]
+  (dorun (map #(<-* (list (list name %))) facts)))
 
-(<- (relation r))
-(<- (relation s))
-(<- (relation t))
+(add-facts 'operator-name '(select project rename join xproduct))
+(add-facts 'relation '(r s t u v w))
 
 (<- (condition c))
 
 (<- (valid X) (relation X))
-(<- (valid [O R & _])
-    
+(<- (valid [O R & Args])
     (valid R))
-
 
 (?- (valid [rename r]))
 
 (?- (relation X))
 (?- (operator X))
-
 (?- (valid [rename r]))
+;; (?- (valid X)) -> will fail, calculates all possible solutions even if I only want the first!
 
 
 
