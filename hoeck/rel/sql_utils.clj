@@ -179,7 +179,7 @@
    [& db-spec]
    (let [conn (delay (get-connection (as-keyargs db-spec)))]
      (fn ([stmt] (sql-query (force conn) stmt))
-         ([key stmt] (case key
+         ([key stmt] (condp = key
                        :rs (sql-query-rs (force conn) stmt)
                        :command (let [r (seq (sql-command (force conn) stmt))] (and (seq? r) (if (rest r) r (first r))))
                        :conn (force conn))))))

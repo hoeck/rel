@@ -56,7 +56,7 @@
 (defmulti join join-dispatch) ;; natural-join
 (defmulti outer-join join-dispatch) ;; right-outer-join
 (defmulti full-outer-join join-dispatch)
-(defmulti fjoin op-dispatch-fn) ;; m
+(defmulti fjoin op-dispatch-fn) ;; join with a custom function
 
 (defmulti union two-op-dispatch-fn)
 (defmulti difference two-op-dispatch-fn)
