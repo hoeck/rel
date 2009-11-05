@@ -24,7 +24,7 @@
 ;   NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 ;   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-;;; relational algebra on clojure sets
+;;; lazy relational algebra on clojure sets
 
 (ns hoeck.rel.fn
   (:require [clojure.set :as set])

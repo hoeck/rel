@@ -40,7 +40,7 @@
   [form]
   (and (seq? form) (= 'clojure.core/unquote (first form))))
 
-;;; sql stuff
+;;; generating sql expressions
 
 (defn clj->sql-multiarg-op
   "Converts many-arg operator forms into infix-forms.
