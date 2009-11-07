@@ -49,7 +49,7 @@
 (defn pos
   "The opposite of get, returns the first index of a value in a seq."
   [coll value]
-  (first (filter identity (map #(and (= value %) %2) (seq coll) (counter)))))
+  (first (filter identity (map #(and (= value %) %2) (seq coll) (repeatedly inc 0)))))
 
 ;; taken from: http://groups.google.com/group/clojure/browse_thread/thread/66ff0b89229be894
 (defmacro let->
@@ -134,13 +134,13 @@ pred is a function which decides if f should be applied to the current form."
 
 (defn throw-unsupported-operation!
   "throw a java.lang.UnsupportedOperationException with messages as text."
-  [& messages]
-  (throw (UnsupportedOperationException. (apply str messages))))
+  [format-str & format-args]
+  (throw (UnsupportedOperationException. (apply format format-str format-args))))
 
 (defn throw-illegal-argument! 
   "throw a java.lang.IllegalArgumentException with messages as text."
-  [& messages]
-  (throw (IllegalArgumentException. (apply str messages))))
+  [format-str & format-args]
+  (throw (IllegalArgumentException. (apply format format-str format-args))))
 
 (defmacro do1
   "like do but return the result from the first form."
@@ -198,12 +198,19 @@ pred is a function which decides if f should be applied to the current form."
                 result)))))
     (count s)))
 
+
 ;;; reflection
 
 ;; from rhickey: http://paste.lisp.org/display/67182
 (defn jcall [obj name & args]
-  (clojure.lang.Reflector/invokeInstanceMethod obj (str name)
-    (if args (to-array args) clojure.lang.RT/EMPTY_ARRAY)))
+  (clojure.lang.Reflector/invokeInstanceMethod obj 
+					       (str name)
+					       (if args (to-array args) clojure.lang.RT/EMPTY_ARRAY)))
+
+(defn jcallstatic [class-or-classname name & args]
+  (clojure.lang.Reflector/invokeStaticMethod class-or-classname
+					     (str name)
+					     (if args (to-array args) clojure.lang.RT/EMPTY_ARRAY)))
 
 (defn jfn [name]
   #(apply jcall %1 name %&))
@@ -253,29 +260,57 @@ pred is a function which decides if f should be applied to the current form."
    (catch java.lang.ClassNotFoundException e
      false)))
 
-(defn make-enumerator [enum-class & enum-keywords]
-  "make a function which takes an enum-class as input and returns the
-  corresponding keyword. The symbol-name of the keywords must match the
-  enums exactly (up/downcase).
-  The function also takes keywords as input and produces Enums as output."
-  (let [enum-classes (apply hash-map (flat1 (map #(list (.valueOf Enum enum-class (symbol-name %)) %) enum-keywords)))]
-    (fn [thing]
-        (cond (instance? Enum thing)
-                (get enum-classes thing)
-              (keyword? thing)
-                (.valueOf Enum enum-class (symbol-name thing))))))
+(defn lisp-to-camelcase
+  "Given a lisp-symbol or keyword, transform its name to CamelCase. Set first-letter-uppercase? to true
+  to make it happen, otherwise the first letter will be lowercase."
+  [first-letter-uppercase? symbol-or-keyword]
+  (when symbol-or-keyword
+    (let [sn (.split (name symbol-or-keyword) "-")
+          upcase-first #(str (.toUpperCase (.substring % 0 1)) (.substring % 1))]
+      (apply str (cons (if first-letter-uppercase? 
+                         (upcase-first (first sn))
+                         (first sn))
+                       (map upcase-first (next sn)))))))
+
+(defn lispify-camelcase
+  "Given a CamelCased JavaSymbol, return a string with the camel-case replaced by lispy-dashes."
+  [j]
+  (let [m (re-matcher #"[A-Z][a-z]*" (str (.toUpperCase (.substring j 0 1)) (.substring j 1)))]
+    (.toLowerCase (apply str (interpose "-" (take-while identity (repeatedly #(re-find m))))))))
+
+(defn make-enumerator-fn
+  "Given a n Enum Class, return a function that maps enums to keywords and vice versa.
+  Calling the generated function without any arguments returns a seq of possible keys.
+  Calling it with either an enum or keyword returns the correspondin keywod or 
+  Throw illegal-argument-exceptions on inappropriate arguments."
+  [enum-class]
+  (when-not (isa? enum-class Enum) (throw-illegal-argument! enum-class " is not a java.lang.Enum"))
+  (let [enums (jcallstatic enum-class "values")
+	keys (map #(-> % .name .toLowerCase lispify-camelcase keyword) enums)
+	k-e-map (zipmap keys enums)
+	e-k-map (zipmap enums keys)]
+    (fn enum
+      ([] keys)
+      ([key-or-enum]
+	 (cond (instance? enum-class key-or-enum) (e-k-map key-or-enum)
+	       (keyword? key-or-enum) (if-let [e (k-e-map key-or-enum)]
+					e
+					(throw-illegal-argument! "no enum for key: %s, possible keys are: %s"
+								 key-or-enum (enum)))
+	       :else (throw-illegal-argument! "Must be either a keyword or an Enum of type: %s"
+					      (.getName enum-class)))))))
 
 (defn ifn-arity
   "Return a set of numbers #{(0..19)*} or #{(0..19)* :rest} denoting valid arities/varargs
   of a clojure Function. Throws an IllegalArgumentException if (ifn? f) fails."
   [f]
   (when-not (ifn? f) (throw-arg "Expecting an IFn, got a: %s" (type f)))
-  (pipe (seq (.getDeclaredMethods (class f)))
-        (filter #(#{"doInvoke" "invoke"} (.getName %)))
-        (map #(if (= (.getName %) "doInvoke")
-                :rest
-                (count (.getParameterTypes %))))
-        (set)))
+  (->> (seq (.getDeclaredMethods (class f)))
+       (filter #(#{"doInvoke" "invoke"} (.getName %)))
+       (map #(if (= (.getName %) "doInvoke")
+	       :rest
+	       (count (.getParameterTypes %))))
+       (set)))
 
 (defn get-methods-by-name
   "get methods from class matching (str name)."
@@ -336,18 +371,19 @@ pred is a function which decides if f should be applied to the current form."
   Return a map of keywords to files. Keywords are generated from
   the first matching group of regex and filename."
   [path regex]
-  (pipe (if (isa? path java.io.File) path (java.io.File. path))
-        (.listFiles)
-        (seq)
-        (remove #(.isDirectory %))
-        (map #(vector (-> (re-seq regex (.getName %)) first second)
-                      %))
-        (remove #(-> % first nil?))
-        (map #(vector (-> % first keyword) (second %)))
-        (into {})))
+  (->> (if (isa? path java.io.File) path (java.io.File. path))
+       (.listFiles)
+       (seq)
+       (remove #(.isDirectory %))
+       (map #(vector (-> (re-seq regex (.getName %)) first second) %))
+       (remove #(-> % first nil?))
+       (map #(vector (-> % first keyword) (second %)))
+       (into {})))
 
-(defn messageox [& stuff]
+(defn messagebox [& stuff]
   "Display arguments in a swing messagebox"
   (let [s (apply str (map (fn [x] (str x " ")) stuff))]
     (. javax.swing.JOptionPane (showMessageDialog nil s))
     (first stuff)))
+
+
