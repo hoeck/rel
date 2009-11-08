@@ -32,7 +32,7 @@
   (type thing))
 
 (defn op-dispatch-fn [relation & rest]
-  (:relation-tag ^relation))
+  (or (:relation-tag ^relation) :clojure))
 
 (defn join-dispatch [R r, S s]
   (let [tag-r (:relation-tag ^R)
@@ -42,35 +42,34 @@
         :clojure)))
 
 (defn two-op-dispatch-fn [R, S & rest]
-  (let [tag-r (:relation-tag ^R)
-        tag-s (:relation-tag ^S)]
-    (or (or (nil? tag-r) (nil? tag-s))
-        (and (= tag-r tag-s) tag-r)
-        :clojure)))
+  (let [tag-r (or (:relation-tag ^R) :clojure)
+        tag-s (or (:relation-tag ^S) :clojure)]
+    (if (= tag-r tag-s)
+      tag-r
+      :clojure)))
+
+(defn many-op-dispatch-fn [& relations]
+  (let [the-one (into #{} (map #(or (:relation-tag (meta %)) :clojure)
+                               relations))]
+    (if (= 1 (count the-one)) 
+      (first the-one)
+      :clojure)))
 
 (defmulti project op-dispatch-fn)
 (defmulti select op-dispatch-fn)
 (defmulti rename op-dispatch-fn)
 (defmulti xproduct two-op-dispatch-fn)
 
-(defmulti join join-dispatch) ;; natural-join
-(defmulti outer-join join-dispatch) ;; right-outer-join
-(defmulti full-outer-join join-dispatch)
+(defmulti join two-op-dispatch-fn) ;; natural-join
+(defmulti outer-join two-op-dispatch-fn) ;; right-outer-join
 (defmulti fjoin op-dispatch-fn) ;; join with a custom function
 
-(defmulti union two-op-dispatch-fn)
-(defmulti difference two-op-dispatch-fn)
-(defmulti intersection two-op-dispatch-fn)
+(defmulti union many-op-dispatch-fn)
+(defmulti difference many-op-dispatch-fn)
+(defmulti intersection many-op-dispatch-fn)
+
 (defmulti order-by op-dispatch-fn)
+(defmulti aggregate op-dispatch-fn)
 
 ;; constructor methods
-(defmulti make-relation type-dispatch)
-(defmulti make-index type-dispatch)
-
-;; misc functions
-(defn fields [R] (:fields ^R))
-(defn index [R] (:index ^R))
-(defn field? [form] (keyword? form))
-(defn relation? [x] (if (:relation-tag ^x) true))
-
-
+(defmulti relation type-dispatch)

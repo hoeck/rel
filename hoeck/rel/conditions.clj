@@ -69,9 +69,17 @@
 (def #^{:doc "Mapping from function symbols to infix expansion fns."}
      sql-condition-ops
   (let [make-op-map (fn [op-expand-fn ops] (into {} (map #(vector %, op-expand-fn) ops)))]
-    (merge (make-op-map clj->sql-2arg-op '(= < > not=))
+    (merge (make-op-map clj->sql-2arg-op '(= < > <= >= not=))
            (make-op-map clj->sql-multiarg-op '(and or - + * / str))))) ; use str as an alias for string concatenation *shudder*
 
+(def #^{:doc "Maps clojure-functions their symbols."}
+     cljfn->sym 
+     {= '=
+      < '<
+      > '>
+      <= '<=
+      >= '>=
+      not= 'not=})
 
 ;; condition-object
 
@@ -98,39 +106,23 @@
 ;;;  environment (lexical scope) while preserving enough abstraction from
 ;;;  the underlying relation implementation and reducing line noise."
 (defmacro condition
-  "expand into a fn form.
+  "Expand into a fn form implementing a predicate/projection function.
   Calling this function without an arg will return the underlying
-  condition-expression, the involved columns and additional properties. (function meta-data).
+  condition-expression, the involved fields, its name, its type and additional properties (function meta-data).
   Calling with a hashmap as the arguments executes the expr with the unquoted symbols bound to
-  the corresponding fields of the hashmap."
-  ([expr & metadata]
+  the corresponding fields of the hashmap.
+  Additional metadata may be given as a hashmap, like :name (for projection conditions)"
+  ([expr] `(condition ~expr {}))
+  ([expr metadata]
      (let [fields (map #(-> % second str keyword) (collect-exprs field-form? expr))
            tuple-sym (gensym "tuple")
-           fn-expr (replace-exprs field-form? #(list (-> % second str keyword) tuple-sym) expr)]
+           fn-expr (replace-exprs field-form? #(list (-> % second str keyword) tuple-sym nil) expr)]
        `(fn ;~(symbol (name condition-name))
-          ([]
-             ;; Should throw an error if any operator is not in sql-condition-ops.
-             ;; Only if all operators used in expr are in sql-condition-ops the expr gets
-             ;; quoted correctly.
-             ;; If any operator is not in sql-condition-ops, then only introspection of the
-             ;; expr is not working, the condition-function-ctor and the
-             ;; condition-function are working anyway.
-             ;; this is actually function metadata and will be moved there if that finally gets implemented
-             (merge {:expr (fn [] ~(quote-condition-expression expr)),;; wrap in a fn, so that they are not 'accidentially' computed when accessing the condition-metatdata
-                     :fields '~fields
-                     :type :user
-                     ;:name '~(or condition-name 
-                     ;            ;; provide a default field-name: ????
-                     ;            (keyword (apply str (interpose '- (map name (concat fields (list (gensym ""))))))))
-                     }
-                    '~(let-> m metadata
-                             (apply hash-map m)
-                             (rename-keys m {:as :name})
-                             (map (fn [[k v]] (cond (= k :name) 
-                                                      [k, (or v (throw-arg ":return-fields cannot be empty"))]
-                                                    :else [k, v]))
-                                  m)
-                             (into {} m))))
+          ([] (merge {:expr (fn [] ~(quote-condition-expression expr)),;; wrap in a fn, so that they are not 'accidentially' computed when accessing the condition-metatdata
+                      :fields '~fields
+                      :type :user
+                      :name '~(gensym "field")}
+                     ~metadata))
           ([~tuple-sym]
              ~fn-expr)))))
 
@@ -141,10 +133,12 @@
   (symbol "hoeck.rel.field" (name field)))
 
 (defmacro condition-meta
-  "Return the conditions metadata."
-  [c]   
-  `(binding [unquote field-quote]
-     (~c)))
+  "Return the conditions metadata. When given a keyword, return
+  the corresponding value from the condition metadata."
+  ([c] `(binding [unquote field-quote]
+          (~c)))
+  ([c key] `(binding [unquote field-quote]
+              ((~c) ~key))))
 
 (defmacro condition-expr
   "Return the expr of condition c with the unquote-fn bound to
@@ -156,26 +150,53 @@
 
 ;; some special conditions
 
-(defn make-identity-condition 
+(defn identity-condition
   "A condition which evaluates to the given field-name."
-  [field-name]
-  (fn ([] {:expr (clojure.core/unquote field-name)
-           :fields (list field-name)
-           :name field-name
-           :type :identity
-           :return-field (list field-name)})
-    ([fields];; should test that field_name is included in fields,
-       ;; otherwise throw an error
-       (let [field-pos (pos fields field-name)]
-         (fn [tuple] (tuple field-pos))))))
+  [name]
+  (fn ([] {:expr (clojure.core/unquote name)
+           :fields (list name)
+           :name name
+           :type :identity})
+    ([tuple]
+       (name tuple))))
 
+(defn join-condition
+  "A special condition with evaluates to (f field-of-relation-A field-of-relation-B),
+  where f is a symbol. When f is one of the core =, <, >, >=, <= or not= 
+  functions, its transatable to an sql-join statement."
+  [f name-a name-b]
+  (fn ([] {:field-a name-a
+           :field-b name-b
+           :join-symbol (cljfn->sym f '???)
+           :join-function f
+           :type :join})
+    ([tuple-a tuple-b]
+       (f (get tuple-a name-a)
+          (get tuple-b name-b)))))
 
+(def aggregate-condition-types
+     {:sum #(apply + %)
+      :avg #(/ (reduce + %) (count %))
+      :count count
+      :min #(apply min %)
+      :min #(apply max %)})
 
+(defn aggregate-condition
+  "Reduces a seq of tuples into a single value. See `aggregate-condition-types' for some sample
+  sql-like aggregate-conditions: :sum, :avg, :count, :min and :max
+  aggf is either a keyword denoting a standard function or a function, which is fed with a seq
+  of tuple fields of field-name."
+  [function-or-keyword field-name]
+  (let [agg-f (aggregate-condition-types function-or-keyword)]
+    (fn ([] {:name field-name
+             :type :aggregate
+             :function function-or-keyword})
+      ([field-seq]
+         (agg-f (map field-name field-seq))))))
 
-
-
-
-
-
-
-
+;;(defn order-condition
+;;  "Sql only nows ascending and descending order,
+;;  clojure relations support any comparator (pred-fn)."
+;;  [predicate field-name]
+;;  (fn ([] {:name field-name
+;;           :function predicate})))
