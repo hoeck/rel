@@ -25,75 +25,51 @@
 ;   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns hoeck.rel
-  (:require ;[hoeck.rel.sql  :as sql]
-            ;[hoeck.rel.sql-utils  :as sql-utils]
-            [hoeck.rel.operators :as op]
-            ;[hoeck.rel.iris :as iris]
-            [hoeck.rel.structmaps :as st]
-            [hoeck.rel.conditions :as cd]
-            [hoeck.rel.testdata :as td]
-            hoeck.magic-map.MagicMap ;; my broken compile needs to load the namespaces here
-            hoeck.value-mapped-map.ValueMappedMap)
+  (:require
+   ;;[hoeck.rel.sql  :as sql]
+   ;;[hoeck.rel.sql-utils  :as sql-utils]
+   ;;[hoeck.rel.iris :as iris]
+   [hoeck.rel.operators :as op]
+   [hoeck.rel.testdata :as td])
   (:use hoeck.library
-        hoeck.magic-map
-        hoeck.value-mapped-map
         hoeck.rel.conditions
+        hoeck.rel.non-lazy
         clojure.contrib.def
         clojure.contrib.duck-streams
-        clojure.contrib.pprint))
-
-(defmacro defaliases [& name-orig-pairs]
-  `(do ~@(map #(list `defalias (first %) (second %)) (partition 2 name-orig-pairs))))
-
-(defmacro def-lots-of-aliases 
-  "Define aliases from namespace-name/sym to sym.
-  body syntax: (namespace-name symbols-to-alias-here*)*"
-  [& body]
-  `(do ~@(mapcat (fn [[ns & lots-of-aliases]]
-                   (map (fn [sym]
-                          `(defalias ~sym ~(symbol (str ns) (str sym))))
-                        lots-of-aliases))
-          body)))
-
-;;(def-lots-of-aliases
-;;   (op make-relation) ;; union intersection difference
-;;   (iris with-empty-universe <- ?-)
-;;   )
-
-(defalias make-relation op/make-relation)
+        clojure.contrib.pprint
+        clojure.contrib.cl-format))
 
 
-;; global relation
+;; global relvar store, allows referring to relations with a keyword
 
 (def *relations* {})
 
-(defn relation-or-lookup [keyword-or-relation]
+(defn relation-or-lookup
+  "if a keyword is given, looks it up in *relations*, otherwise just return its argument."
+  [keyword-or-relation]
   (if (keyword? keyword-or-relation) 
     (keyword-or-relation *relations*)
     keyword-or-relation))
 
-(defn fields [R]
-  (op/fields (relation-or-lookup R)))
 
-(defn relations 
-  "Return a relation of [:field :name] of all relations
-currently bound to *relations*"
-  []
-  (make-relation (doall (mapcat (fn [r] (map #(hash-map :relation r
-                                                        :field %)
-                                             (fields r)))
-                                (keys *relations*)))))
+;; relational operators
+;;   make them work on global relvar or on a given relation (a set with a meta)
+;;   add some macro foo to make them look prettier
+;;   always make a functional (trailing `*') and a macro version of each op
+;;   ins arglists: a uppercase R, S or T always denotes a relation or a relvar
 
-;; rename
-
-(defn rename* [R name-newname-map]
+(defn rename*
+  "Given a map of {:old :new, ...}, rename the fields of R."
+  [R name-newname-map]
   (op/rename (relation-or-lookup R) name-newname-map))
 
-(defmacro rename [R & name-newname-pairs]
+(defmacro rename
+  "Given a relation or relvar R and pairs of oldname and newname, rename the fields of R."
+  [R & name-newname-pairs]
   `(rename* ~R (hash-map ~@name-newname-pairs)))
 
 (defn as
-  "rename all fields of a relation such that they have a common prefix"
+  "rename all fields of a relation R such that they have a common prefix"
   [R prefix]
   (rename* R (zipmap (fields R) (map #(keyword (str prefix "-" (name %))) (fields R)))))
 
@@ -110,23 +86,28 @@ currently bound to *relations*"
   ;;       maybe with nested, destructuring-like expressions like {:name #{mathias, robert}}
   ;;       or [? #{mathias, robert} dresden]
   ;;       or [(< 10 ?) ? (not= #{dresden, rostock})]
+  ;;        known as: query-by-example
   ;;        -> use all of {[()]} 
   ;;       multiarg-select: keyword value -> hashmap access like `get' where (name :keyword) == field-name
   ;;       => qbe ????
-  "Macro around select."
+  "Macro around select. A Condition is a form wrapped around the condition macro.
+  Ex: (select :person (< 20 ~age)) to select all persons of :age greater than 20."
   [R condition]
   `(select* (relation-or-lookup ~R) (cd/condition ~condition)))
 
 
 ;; project
 
-(defn project* [R condition-list]
-  (op/project (relation-or-lookup R) condition-list))
+(defn project*
+  "Project R according to conditions. Conditions must have a name or must be 
+  identity-conditions."
+  [R & conditions]
+  (op/project (relation-or-lookup R) conditions))
 
 (defmacro project
   "Convienience macro for the project operation."
   [R & exprs]
-  `(project* (relation-or-lookup ~R) 
+  `(project* (relation-or-lookup ~R)
              (list ~@(map #(cond (op/field? %)
                                    %
                                  (vector? %)
