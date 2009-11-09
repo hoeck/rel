@@ -3,9 +3,8 @@
 
 (ns hoeck.rel.non-lazy
   (:use hoeck.rel.operators
-	hoeck.rel.core
         hoeck.rel.conditions
-	hoeck.library
+        hoeck.library
         clojure.contrib.pprint)
   (:require [clojure.set :as set]))
 

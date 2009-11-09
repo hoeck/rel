@@ -27,7 +27,6 @@
 
 (ns hoeck.rel.conditions
   (:use hoeck.library
-        ;;[clojure.set :only [rename-keys]]
         [clojure.contrib.except :only [throw-arg]]))
 
 (defn rename-keys [m kmap]
@@ -108,13 +107,17 @@
 (defmacro condition
   "Expand into a fn form implementing a predicate/projection function.
   Calling this function without an arg will return the underlying
-  condition-expression, the involved fields, its name, its type and additional properties (function meta-data).
-  Calling with a hashmap as the arguments executes the expr with the unquoted symbols bound to
-  the corresponding fields of the hashmap.
-  Additional metadata may be given as a hashmap, like :name (for projection conditions)"
+  condition-expression, the involved fields, its name, its type and additional
+  properties (function meta-data).
+  Calling with a hashmap as the arguments executes the expr with the unquoted 
+  symbols bound to the corresponding fields of the hashmap.
+  Additional metadata may be given as a hashmap, like :name (for projection 
+  conditions).
+  When Metadata is a single keyword, its assumed to be: {:name the-keyword}."
   ([expr] `(condition ~expr {}))
   ([expr metadata]
-     (let [fields (map #(-> % second str keyword) (collect-exprs field-form? expr))
+     (let [metadata (if (keyword? metadata) {:name metadata} metadata)
+           fields (map #(-> % second str keyword) (collect-exprs field-form? expr))
            tuple-sym (gensym "tuple")
            fn-expr (replace-exprs field-form? #(list (-> % second str keyword) tuple-sym nil) expr)]
        `(fn ;~(symbol (name condition-name))
@@ -179,7 +182,7 @@
       :avg #(/ (reduce + %) (count %))
       :count count
       :min #(apply min %)
-      :min #(apply max %)})
+      :max #(apply max %)})
 
 (defn aggregate-condition
   "Reduces a seq of tuples into a single value. See `aggregate-condition-types' for some sample
@@ -191,7 +194,7 @@
     (fn ([] {:name field-name
              :type :aggregate
              :function function-or-keyword})
-      ([field-seq]
+      ([field-seq]	 
          (agg-f (map field-name field-seq))))))
 
 ;;(defn order-condition

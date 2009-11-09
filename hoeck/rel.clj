@@ -25,20 +25,14 @@
 ;   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns hoeck.rel
-  (:require
-   ;;[hoeck.rel.sql  :as sql]
-   ;;[hoeck.rel.sql-utils  :as sql-utils]
-   ;;[hoeck.rel.iris :as iris]
-   [hoeck.rel.operators :as op]
-   [hoeck.rel.testdata :as td])
+  (:require [hoeck.rel.operators :as op]
+            [hoeck.rel.testdata :as td])
   (:use hoeck.library
         hoeck.rel.conditions
         hoeck.rel.non-lazy
         clojure.contrib.def
         clojure.contrib.duck-streams
-        clojure.contrib.pprint
-        clojure.contrib.cl-format))
-
+        clojure.contrib.pprint))
 
 ;; global relvar store, allows referring to relations with a keyword
 
@@ -93,7 +87,7 @@
   "Macro around select. A Condition is a form wrapped around the condition macro.
   Ex: (select :person (< 20 ~age)) to select all persons of :age greater than 20."
   [R condition]
-  `(select* (relation-or-lookup ~R) (cd/condition ~condition)))
+  `(select* ~R (condition ~condition)))
 
 
 ;; project
@@ -102,103 +96,74 @@
   "Project R according to conditions. Conditions must have a name or must be 
   identity-conditions."
   [R & conditions]
-  (op/project (relation-or-lookup R) conditions))
+  (op/project (relation-or-lookup R) (map #(if (keyword? %) 
+                                             (identity-condition %)
+                                             %)
+                                          conditions)))
 
 (defmacro project
   "Convienience macro for the project operation."
   [R & exprs]
-  `(project* (relation-or-lookup ~R)
-             (list ~@(map #(cond (op/field? %)
-                                   %
-                                 (vector? %)
-                                   `(cd/condition ~(first %) ~(second %))
-                                 :else 
-                                   `(cd/condition ~%))
-                          exprs))))
+  `(project* ~R
+             ~@(map #(cond (keyword? %) `(identity-condition ~%)
+                           (vector? %) `(condition ~(first %) ~(second %))
+                           :else `(condition ~%))
+                    exprs)))
+
 
 ;; union, difference, intersection
 
-(defn make-set-op-fn
-  "Return a function which extends the given 2-argument set function
-  to take more than 2 relations."
-  [set-op]
-  (fn me 
-    ([R] (relation-or-lookup R))
-    ([R S] (set-op (relation-or-lookup R) (relation-or-lookup S)))
-    ([R S & more]
-       (apply me (set-op (relation-or-lookup R) (relation-or-lookup S)) more))))
+(defmacro def-set-operator [name op]
+  `(defn ~name [& rels#] (apply ~op (map relation-or-lookup rels#))))
 
-(def union (make-set-op-fn op/union))
-(def intersection (make-set-op-fn op/intersection))
-(def difference (make-set-op-fn op/difference))
+(def-set-operator union op/union)
+(def-set-operator intersection op/intersection)
+(def-set-operator difference op/difference)
 
 
 ;; joins
 
-(defn make-join-op-fn [join-op]
-  "return a function which implements the given join-op for more than two relation-field pairs."
-  (fn multiarg-join    
-    ([R r S s]
-       (join-op (relation-or-lookup R) r (relation-or-lookup S) s))
-    ([R r S s & more]
-       (if (= 1 (count more)) (throw (java.lang.IllegalArgumentException. "wrong number of arguments to join")))
-       (apply multiarg-join (join-op (relation-or-lookup R) r (relation-or-lookup S) s) r more))))
+(defn join [R S join-condition]
+  (op/join (relation-or-lookup R)
+           (relation-or-lookup S)
+           join-condition))
 
-(def join (make-join-op-fn op/join))
+(defn outer-join [R S join-condition]
+  (op/outer-join (relation-or-lookup R)
+                 (relation-or-lookup S)
+                 join-condition))
 
-;; fixme:
-(def right-outer-join (make-join-op-fn (fn [R r S s] (union (op/join R r S s) R))))
-;; fixme:
-(def outer-join (make-join-op-fn (fn [R S r s] (union (join R r S s) (join S s R r) R S))))
+(defn fjoin [R f]
+  (op/fjoin (relation-or-lookup R) f))
 
-;; functional join:
-;; example: 
-;;       (let [R #{{:a 1} {:a 2}}]
-;;          (fjoin R #(take % (range 99)) :b)
-;;       -> #{{:a 1 :b 10}
-;;            {:a 2 :b 10}
-;;            {:a 2 :b 11}}
-;;       == (make-relation (mapcat #(assoc % :b (take (:a %) (range 10 20))) R) :fields [:a :b])
-;;       )
 
 ;; xproduct
 
 (defn xproduct [R S]
   (op/xproduct (relation-or-lookup R) (relation-or-lookup S)))
 
-;; tools
 
-(defn order-by [R field <-or->]
-  (op/order-by (relation-or-lookup R) field <-or->))
+;; aggregate
 
-(defn group-by
-  "Return a hasmap of field-values to sets of tuples
-  where they occur in relation R. (aka sql-group by or index)."
-  ([R field & more-fields]
-     (let [R (relation-or-lookup R)
-           gi (fn group-index [index-set fields]
-                (if-let [field (first fields)]
-                  (magic-map (fn ([] (map field index-set))
-                                 ([k] (group-index (clojure.set/intersection index-set (((op/index R) field) k)) (next fields)))))
-                  index-set))]
-         (magic-map (fn ([] (keys ((op/index R) field)))
-                        ([k] (gi (((op/index R) field) k) more-fields)))))))
+(defn aggregate*
+  "Use aggregate-conditions to reduce over a range of fields.
+  To groups fields, use identity-conditions."
+  [R & conditions]
+  (op/aggregate (relation-or-lookup R) conditions))
 
-(defn field-seq
-  "Return a seq of field values from a relation.
-  When given more than one field, return values in vectors."
-  ([R field]
-     (map field R ;;(project* R [field])
-          ))
-  ([R field & more-fields]
-     (let [f (cons field more-fields)]
-       (map #(vec (map (partial get %)f)) R))))
+(defmacro aggregate
+  "conditions are vectors/lists of either functions(1) or
+  :sum, :avg, :count, :min or :max keywords and a field-name.
+  Single keywords denote fields to group.
+  (1) see hoeck.rel.conditions/aggregate-condition-types for 
+  definitions of such functions."
+  [R & conditions]
+  `(aggregate* ~R ~@(map #(cond (keyword? %) `(identity-condition ~%)
+                                (or (list? %) (vector? %))
+                                  `(aggregate-condition ~(first %) ~(second %)))
+                         conditions)))
 
-(defn field-map
-  "Return a map of key-field values to value-field values."
-  [R key-field value-field]
-  (value-mapped-map #(map value-field %)
-                    (group-by R key-field)))
+;; predicates:
                       
 (defn like
   "Return true if the expr matches string symbol or keyword x
@@ -210,87 +175,35 @@
               (str "^" (.replace (.toLowerCase (str expr)) "*" ".*") "$"))))
 
 (defn rlike
-  "Return true if string symbol or keyword X matches the regular expression EXPR."
+  "Return true if string symbol or keyword x matches the regular expression."
   [regular-expression x]
   (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
     (.matches x regular-expression)))
 
 ;; pretty printing
 
-(defn- determine-column-sizes
+(defn fields [R] (keys (first R)))
+
+(defn- determine-column-sizes ;; TODO: refactor
   "Given a relation R, return a list of column-sizes according to opts."
-  [R opts]
-  (if (not (empty? R))
-    (let [max-col-widths (map #(pipe (project* R (list %))
-                                     (map pr-str)
-                                     (map count)
-                                     (map (partial + -1))
-                                     (reduce max))
-                              (fields R))
-          pretty-col-widths (pipe max-col-widths
-                                  (map (partial min (:max-colsize opts 80)))
-                                  (map (partial max (:min-colsize opts 3))))
-          small-fields-count (count (filter (partial <= (:min-colsize opts 0)) pretty-col-widths))
-          amount (if (< small-fields-count 0)
-                   (/ (- (reduce + pretty-col-widths) (:max-linesize opts 80))
-                      small-fields-count)
-                   0)]
-      (zipmap (fields R) (if (< 0 amount)
-                           (map #(max (:min-colsize opts) (- % amount)) pretty-col-widths)
-                           pretty-col-widths)))))
-
-
-(def *pretty-print-relation-opts* {:max-lines 60, :max-colsize 80, :max-linesize 200 :min-colsize 1})
-;;  :max-lines =^ *print-length*
-
-(defn pretty-print-relation
-  "Print a relation pretty readably to :writer (default *out*), try 
-  to align fields correctly while not to exceeding :max-linesize and
-  other opts."
-  [R & opts]
-  (cond (empty? R)
-          (print (set R))
-        :else
-          (let [opts (as-keyargs opts (assoc (or *pretty-print-relation-opts* {}) :writer *out*))
-                max-lines (:max-lines opts *print-length*)
-                max-linesize (:max-linesize opts)
-                R (if max-lines
-                    (make-relation (take (inc max-lines) R) :fields (fields R))
-                    R)
-                sizes (or (not max-linesize) (determine-column-sizes R opts))
-                pr-field (fn [tuple field-name comma]
-                           (let [v (get tuple field-name)
-                                 s (sizes field-name)]
-                             (str (str-cut (str field-name " "
-                                                (str-align (str (pr-str v) (if comma "," ""))
-                                                           (- s (count (str field-name)) (if comma 1 2))
-                                                           (if (or (string? v) (symbol? v) (keyword? v)) :left :right)))
-                                           s)
-                                  (if comma " " ""))))
-                pr-tuple (fn [tuple] (str "{" (apply str (map (partial pr-field tuple)
-                                                              (fields R)
-                                                              (concat (drop 1 (fields R)) '(false)))) "}"))]
-            (let [w (:writer opts)]
-              (binding [*out* w]
-                (print "#{")
-                (if max-linesize 
-                  (print (pr-tuple (first R)))
-                  (print (str (first R) ",")))
-                (let [[tup-pr, tup-remain] (if max-lines
-                                             (split-at (dec max-lines) (next R))
-                                             [(next R) nil])]
-                  (doseq [r tup-pr]
-                    (println)
-                    (if max-linesize 
-                      (print (str "  " (pr-tuple r)))
-                      (print (str "  " r ","))))
-                  (when (seq tup-remain) (println) (print "  ...")))
-                (println "}"))))))
-
-;; establish default pretty-printing of relations, needs awareness for *print-** variables
-(defmethod print-method hoeck.rel.Relation
-  [R, w]
-  (pretty-print-relation R :writer w))
+  ([R] (determine-column-sizes R {}))
+  ([R opts]
+     (if (not (empty? R))
+       (let [max-col-widths (map #(->> (project* R %)
+                                       (map pr-str)
+                                       (map count)
+                                       (map (partial + -1))
+                                       (reduce max))
+                                 (fields R))
+             pretty-col-widths max-col-widths
+             small-fields-count (count (filter (partial <= (:min-colsize opts 0)) pretty-col-widths))
+             amount (if (< small-fields-count 0)
+                      (/ (- (reduce + pretty-col-widths) Integer/MAX_VALUE)
+                         small-fields-count)
+                      0)]
+         (zipmap (fields R) (if (< 0 amount)
+                              (map #(max (:min-colsize opts) (- % amount)) pretty-col-widths)
+                              pretty-col-widths))))))
 
 
 ;; saving & loading
@@ -299,12 +212,29 @@
     (binding [*pretty-print-relation-opts* (assoc *pretty-print-relation-opts* :max-lines nil :max-linesize nil)]
       (print (relation-or-lookup R)))))
 
-;; sql stuff needs hoeck.rel
-;(require '[hoeck.rel.sql-utils :as sql-utils])
-;(require '[hoeck.rel.sql :as sql])
 
-;(def-lots-of-aliases 
-;  (sql-utils default-derby-args default-sybase-args))
+(defn format-string
+  "Return a format-string for pprinting a relation."
+  [names, sizes, vals]
+  (apply str
+         (concat (list "~:{  {")
+                 (interpose " "
+                            (map (fn [name size val]
+                                   (cond (or (string? val) (symbol? val) (keyword? val)) 
+                                         (str "~" size "@<" name " ~s~>") ;; left-aligned
+                                         (number? val)
+                                         (str "~" size "<" name "~;~s~>"))) ;; right-aligned
+                                 names sizes vals))
+                 (list "}~%~}"))))
 
-;(defaliases
-;  sql-connection sql-utils/make-connection-fn)
+(defn pretty-print-relation
+  "Print R nicely formatted, readable and and aligned into a string"
+  [R]
+  (let [fields (fields R)
+        get-vals (fn [m] (map #(% m) fields)) ;; be shure to get alls values in the same order
+        sizes (get-vals (determine-column-sizes R))
+        values (get-vals (first R))
+        fmt-str (format-string fields sizes values)
+        s (cl-format nil fmt-str (map get-vals R))]
+    (str "#{" (.substring s 2 (- (count s) 1)) "}")))
+
