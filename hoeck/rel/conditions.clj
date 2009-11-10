@@ -194,7 +194,7 @@
     (fn ([] {:name field-name
              :type :aggregate
              :function function-or-keyword})
-      ([field-seq]	 
+      ([field-seq]
          (agg-f (map field-name field-seq))))))
 
 ;;(defn order-condition

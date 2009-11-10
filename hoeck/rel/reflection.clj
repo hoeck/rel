@@ -4,7 +4,6 @@
 (ns hoeck.rel.reflection
   (:use hoeck.rel
         hoeck.library
-        hoeck.magic-map
         clojure.contrib.duck-streams
         clojure.contrib.pprint)
   (:import (java.io File, FileInputStream)
@@ -31,7 +30,7 @@
                        'void    Void/TYPE}] ;; or use nil for void??
   (def sym->class 
 ;;    "Converts a symbol or string to a java.lang.Class. Works for primitive types too.
-;;  Returns nil if class nymed by s doesn't exist.."
+;;  Returns nil if class named by s doesn't exist.."
        (memoize (fn [s]
                   (and s
                        (or (primitive-types (symbol s))
@@ -44,26 +43,41 @@
                (class->sym (.getComponentType c))
                (symbol (.getName c))))))
 
-(let [modif (make-relation [[:abstract java.lang.reflect.Modifier/ABSTRACT]
-                            [:final java.lang.reflect.Modifier/FINAL]
-                            [:interface java.lang.reflect.Modifier/INTERFACE]
-                            [:native java.lang.reflect.Modifier/NATIVE]
-                            [:private java.lang.reflect.Modifier/PRIVATE]
-                            [:protected java.lang.reflect.Modifier/PROTECTED]
-                            [:public java.lang.reflect.Modifier/PUBLIC]
-                            [:static java.lang.reflect.Modifier/STATIC]
-                            [:strict java.lang.reflect.Modifier/STRICT]
-                            [:synchronized java.lang.reflect.Modifier/SYNCHRONIZED]
-                            [:transient java.lang.reflect.Modifier/TRANSIENT]
-                            [:volatile java.lang.reflect.Modifier/VOLATILE]]
-                           :fields [:key :id])]
-  (defn modifiers
-    "Returns a seq of modifiers from a class/method/field/constructor (reflection) object."
-    ([] modif)
-    ([id] (map 
-           #(-> (group-by modif :id) (get %) first :key)
-           (filter #(not= 0 (bit-and id %)) (map #(bit-shift-left 1 %) (range 12)))))))
 
+(defn get-static-value [field]
+  (let [parent (.getDeclaringClass field)]
+    (when (and (java.lang.reflect.Modifier/isStatic (.getModifiers field))
+	       (java.lang.reflect.Modifier/isPublic (.getModifiers field)))
+      (.get field parent))))
+
+(defn class-fields
+  "Return a relation of class fields"
+  [c]
+  (set (map #(hash-map :name (.getName %)
+		       :type (str (.getType %))
+		       :modifiers (.getModifiers %)
+		       :static-value (get-static-value %))
+	    (seq (.getFields c)))))
+
+(println (pretty-print-relation  (project (select (class-fields java.lang.reflect.Modifier)
+						  (java.lang.reflect.Modifier/isStatic ~modifiers))
+					  :type
+					  :name
+					  :static-value
+					  [(-> ~name .toLowerCase keyword) :lispy])))
+
+#{{:lispy :final        :name "FINAL"       }
+  {:lispy :protected    :name "PROTECTED"   }
+  {:lispy :volatile     :name "VOLATILE"    }
+  {:lispy :strict       :name "STRICT"      }
+  {:lispy :public       :name "PUBLIC"      }
+  {:lispy :abstract     :name "ABSTRACT"    }
+  {:lispy :static       :name "STATIC"      }
+  {:lispy :transient    :name "TRANSIENT"   }
+  {:lispy :private      :name "PRIVATE"     }
+  {:lispy :native       :name "NATIVE"      }
+  {:lispy :synchronized :name "SYNCHRONIZED"}
+  {:lispy :interface    :name "INTERFACE"   }}
 
 ;; Relation ctors:
 

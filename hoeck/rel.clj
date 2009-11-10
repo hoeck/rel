@@ -188,10 +188,10 @@
 (defn- field-sizes
   "Return a map of all :field-name max-size for pretty-printing."
   [R]
-  (let [strlen-condition #(fn ([] {:name %}) ([tuple] (-> tuple % pr-str count)))        
+  (let [strlen-condition #(fn ([] {:name %}) ([tuple] (-> tuple % pr-str count)))
         fields (fields R)
         max-len-map (first (apply aggregate*
-                                  (apply project* td/people (map strlen-condition fields))
+                                  (apply project* R (map strlen-condition fields))
                                   (map #(aggregate-condition :max %) fields)))]
     (into {} (map (fn [[k v]] [k (-> k str count (+ 1 v))]) max-len-map))))
 
@@ -202,10 +202,10 @@
          (concat (list "~:{  {")
                  (interpose " "
                             (map (fn [name size val]
-                                   (cond (or (string? val) (symbol? val) (keyword? val)) 
-                                         (str "~" size "@<" name " ~s~>") ;; left-aligned
-                                         (number? val)
-                                         (str "~" size "<" name "~;~s~>"))) ;; right-aligned
+                                   (cond (number? val) ;; right-aligned
+					   (str "~" size "<" name "~;~s~>")
+					 :else ;; left-aligned
+					   (str "~" size "@<" name " ~s~>")))
                                  names sizes vals))
                  (list "}~%~}"))))
 
@@ -227,3 +227,4 @@
            (with-out-writer f
              (binding [*pretty-print-relation-opts* (assoc *pretty-print-relation-opts* :max-lines nil :max-linesize nil)]
                (print (relation-or-lookup R))))))
+
