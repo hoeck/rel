@@ -69,9 +69,7 @@
                      (map #(condition-meta % :name)))
         agg-names (map #(condition-meta % :name) aggregates)
         index (set/index R groups)]
-    (println groups)
     (set (map (fn [[k v]]
-                (println [k v])
                 (merge k (zipmap agg-names
                                  (map #(% v) aggregates))))
               index))))

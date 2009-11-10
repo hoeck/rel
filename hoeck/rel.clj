@@ -45,6 +45,7 @@
     (keyword-or-relation *relations*)
     keyword-or-relation))
 
+(defn fields [R] (keys (first R)))
 
 ;; relational operators
 ;;   make them work on global relvar or on a given relation (a set with a meta)
@@ -163,6 +164,7 @@
                                   `(aggregate-condition ~(first %) ~(second %)))
                          conditions)))
 
+
 ;; predicates:
                       
 (defn like
@@ -180,41 +182,21 @@
   (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
     (.matches x regular-expression)))
 
+
 ;; pretty printing
 
-(defn fields [R] (keys (first R)))
+(defn- field-sizes
+  "Return a map of all :field-name max-size for pretty-printing."
+  [R]
+  (let [strlen-condition #(fn ([] {:name %}) ([tuple] (-> tuple % pr-str count)))        
+        fields (fields R)
+        max-len-map (first (apply aggregate*
+                                  (apply project* td/people (map strlen-condition fields))
+                                  (map #(aggregate-condition :max %) fields)))]
+    (into {} (map (fn [[k v]] [k (-> k str count (+ 1 v))]) max-len-map))))
 
-(defn- determine-column-sizes ;; TODO: refactor
-  "Given a relation R, return a list of column-sizes according to opts."
-  ([R] (determine-column-sizes R {}))
-  ([R opts]
-     (if (not (empty? R))
-       (let [max-col-widths (map #(->> (project* R %)
-                                       (map pr-str)
-                                       (map count)
-                                       (map (partial + -1))
-                                       (reduce max))
-                                 (fields R))
-             pretty-col-widths max-col-widths
-             small-fields-count (count (filter (partial <= (:min-colsize opts 0)) pretty-col-widths))
-             amount (if (< small-fields-count 0)
-                      (/ (- (reduce + pretty-col-widths) Integer/MAX_VALUE)
-                         small-fields-count)
-                      0)]
-         (zipmap (fields R) (if (< 0 amount)
-                              (map #(max (:min-colsize opts) (- % amount)) pretty-col-widths)
-                              pretty-col-widths))))))
-
-
-;; saving & loading
-(defn save-relation [R f]
-  (with-out-writer f
-    (binding [*pretty-print-relation-opts* (assoc *pretty-print-relation-opts* :max-lines nil :max-linesize nil)]
-      (print (relation-or-lookup R)))))
-
-
-(defn format-string
-  "Return a format-string for pprinting a relation."
+(defn- format-string
+  "Generate a format-string for pprinting a relation."
   [names, sizes, vals]
   (apply str
          (concat (list "~:{  {")
@@ -228,13 +210,20 @@
                  (list "}~%~}"))))
 
 (defn pretty-print-relation
-  "Print R nicely formatted, readable and and aligned into a string"
+  "Print R nicely formatted, readable and and aligned into a string.
+  Obey to *print-length*."
   [R]
   (let [fields (fields R)
+        R (if *print-length* (take *print-length* R) R)
         get-vals (fn [m] (map #(% m) fields)) ;; be shure to get alls values in the same order
-        sizes (get-vals (determine-column-sizes R))
+        sizes (get-vals (field-sizes R))
         values (get-vals (first R))
         fmt-str (format-string fields sizes values)
         s (cl-format nil fmt-str (map get-vals R))]
-    (str "#{" (.substring s 2 (- (count s) 1)) "}")))
+    (str "#{" (.substring s 2 (- (count s) 1)) (if *print-length* (str \newline "  ...") "") "}")))
 
+;; saving & loading
+(comment (defn save-relation [R f]
+           (with-out-writer f
+             (binding [*pretty-print-relation-opts* (assoc *pretty-print-relation-opts* :max-lines nil :max-linesize nil)]
+               (print (relation-or-lookup R))))))
