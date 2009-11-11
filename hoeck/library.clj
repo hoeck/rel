@@ -387,3 +387,5 @@ pred is a function which decides if f should be applied to the current form."
     (first stuff)))
 
 
+(defn bit-set? [bit int]
+  (not (zero? (bit-and (bit-shift-left 1 bit) int))))

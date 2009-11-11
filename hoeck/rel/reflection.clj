@@ -8,10 +8,11 @@
         clojure.contrib.pprint)
   (:import (java.io File, FileInputStream)
            (java.util.jar JarInputStream, JarEntry)
-           (java.lang.instrument IllegalClassFormatException)))
+           (java.lang.instrument IllegalClassFormatException)
+	   (java.lang.reflect Modifier)))
 
 (defmacro try-ignore
-  "Ignore all classloading errors"
+  "Execute body while ignoring all classloading errors"
   [& body]
   `(try ~@body
         (catch NullPointerException e# nil)
@@ -56,34 +57,30 @@
   (set (map #(hash-map :name (.getName %)
 		       :type (str (.getType %))
 		       :modifiers (.getModifiers %)
-		       :static-value (get-static-value %))
+		       :field %)
 	    (seq (.getFields c)))))
 
-(println (pretty-print-relation  (project (select (class-fields java.lang.reflect.Modifier)
-						  (java.lang.reflect.Modifier/isStatic ~modifiers))
-					  :type
-					  :name
-					  :static-value
-					  [(-> ~name .toLowerCase keyword) :lispy])))
+(defn class-static-fields
+  "Return a relation of static fields and their values, names and types."
+  [c]
+  (project (select (class-fields c) (Modifier/isStatic ~modifiers))
+	   *
+	   [(get-static-value ~field) :static-value]))
 
-#{{:lispy :final        :name "FINAL"       }
-  {:lispy :protected    :name "PROTECTED"   }
-  {:lispy :volatile     :name "VOLATILE"    }
-  {:lispy :strict       :name "STRICT"      }
-  {:lispy :public       :name "PUBLIC"      }
-  {:lispy :abstract     :name "ABSTRACT"    }
-  {:lispy :static       :name "STATIC"      }
-  {:lispy :transient    :name "TRANSIENT"   }
-  {:lispy :private      :name "PRIVATE"     }
-  {:lispy :native       :name "NATIVE"      }
-  {:lispy :synchronized :name "SYNCHRONIZED"}
-  {:lispy :interface    :name "INTERFACE"   }}
+(def modifiers (project (class-static-fields Modifier)
+			:name 
+			:static-value
+			[(-> ~name .toLowerCase keyword) :keyword]))
+
+(defn modifier-set [i]
+  (select (project modifiers :keyword [(not (zero? (bit-and ~static-value i))) :set?])
+	  ~set?))
 
 ;; Relation ctors:
 
-(defn make-classpath-R []
-  (make-relation (map list (concat (list-classpaths) (list-bootclasspaths)))
-                 :fields [:path]))
+(defn classpaths []
+  (union (fjoin #{{:type :normal}} (fn [_] (map (partial hash-map :path) (list-classpaths))))
+	 (fjoin #{{:type :boot}} (fn [_] (map (partial hash-map :path) (list-classpaths))))))
 
 ;; namespaces
 
