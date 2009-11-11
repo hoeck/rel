@@ -13,6 +13,25 @@
 (defmethod fields :clojure [R]
   (keys (first R)))
 
+(defmethod relation clojure.lang.IPersistentVector
+  ;; (relation [:name :path] :c :d :e :f) -> #{{:name :c :path :f} ..}
+  ;; (relation [[:name :path] [[:a :b] [:x :y]]]) -> #{{:name :a :path :b} ..}
+  [rdef data]
+  (cond (vector? (first rdef))
+          (->> data
+               (map (partial zipmap (first rdef)))
+               set)
+        :else
+          (relation (vector rdef) (partition (count rdef) data))))
+
+(defmethod relation clojure.lang.Keyword
+  ;; (relation :name :c :d :e :f) -> #{{:name :c :path :f} ..}
+  [field-name data]
+  (relation (vector field-name) data))
+
+
+;; op
+
 (defmethod project :clojure
   ([_] #{})
   ([R conditions]

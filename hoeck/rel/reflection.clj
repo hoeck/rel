@@ -44,7 +44,6 @@
                (class->sym (.getComponentType c))
                (symbol (.getName c))))))
 
-
 (defn get-static-value [field]
   (let [parent (.getDeclaringClass field)]
     (when (and (java.lang.reflect.Modifier/isStatic (.getModifiers field))
@@ -67,52 +66,46 @@
 	   *
 	   [(get-static-value ~field) :static-value]))
 
+
+;; modifiers 
+
 (def modifiers (project (class-static-fields Modifier)
 			:name 
 			:static-value
 			[(-> ~name .toLowerCase keyword) :keyword]))
 
-(defn modifier-set [i]
-  (select (project modifiers :keyword [(not (zero? (bit-and ~static-value i))) :set?])
-	  ~set?))
+(defn modifier-keys
+  "given an integer, return a list of modifier keywords.
+  (modifier-keys 25) -> (:final :static :public)"
+  [i]
+  (map :keyword
+       (select (project modifiers :keyword [(not (zero? (bit-and ~static-value i))) :set?])
+               ~set?)))
 
-;; Relation ctors:
+(defn modifier-int
+  "Opposite function to modifier-keys. Given a list of modifier-keywords, return an integer."
+  [& modifier-keys]
+  (let [ms (set modifier-keys)]
+    (->> (select modifiers (ms ~keyword))
+         (map :static-value)
+         (reduce +))))
+
+
+;; classpath
 
 (defn classpaths []
-  (union (fjoin #{{:type :normal}} (fn [_] (map (partial hash-map :path) (list-classpaths))))
-	 (fjoin #{{:type :boot}} (fn [_] (map (partial hash-map :path) (list-classpaths))))))
+  (union (project (relation :path (list-classpaths)) * [:normal :type])
+         (project (relation :path (list-bootclasspaths)) * [:boot :type])))
+
 
 ;; namespaces
 
-(defn make-namespace-R
-  "Returns a relation containing all namespaces in ns-seq."
-  [ns-seq]
-  (make-relation 
-   (map #(list (ns-name %)) ns-seq)
-   :fields [:name]))
-
-(defn make-from-namespace-R
-  "takes the relation created with `namespace-R' and a clojure.core/ns-* function and
-  a field name to where the function maps and produces a new relation."
-  [namespace-rel ns-fn field-name]
-  (let [ns-names (field-seq namespace-rel :name)
-        fields (list :ns :name field-name)]
-    (make-relation (mapcat (fn [ns-name] 
-                             (map #(zipmap fields
-                                           (cons ns-name %))
-                                  (ns-fn (find-ns ns-name))))
-                           ns-names)
-                   :fields fields)))
-
-(defn make-ns-imports-R [ns-relation]
-  (make-from-namespace-R ns-relation
-                         #(map (fn [[k v]] [k (class->sym v)]) (ns-imports %))
-                         :class))
-
-(def make-ns-aliases-R #(make-from-namespace-R % ns-aliases :alias))
-(def make-ns-refers-R #(make-from-namespace-R % ns-refers :varname))
-(def make-ns-interns-R #(make-from-namespace-R % ns-interns :varname))
-(def make-ns-publics-R #(make-from-namespace-R % ns-publics :varname))
+(defn namespaces [] (project (relation [:ns] (all-ns)) :ns [(ns-name ~ns) :name]))
+(defn aliases [nsr] (project (fjoin nsr #(relation [[:alias :full]] (ns-aliases (:ns %)))) :ns :alias :full))
+(defn refers [nsr] (fjoin nsr #(relation [[:symbol :full]] (ns-refers (:ns %)))))
+(defn interns [])
+(defn publics [])
+(defn imports [])
 
 ;; files
 

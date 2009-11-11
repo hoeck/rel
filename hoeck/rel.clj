@@ -45,6 +45,8 @@
     (keyword-or-relation *relations*)
     keyword-or-relation))
 
+(defalias relation op/relation)
+
 ;; relational operators
 ;;   make them work on global relvar or on a given relation (a set with a meta)
 ;;   add some macro foo to make them look prettier
@@ -114,7 +116,6 @@
 			   (= '* %) `*
 			   :else `(condition ~%))
                     exprs)))
-
 
 ;; union, difference, intersection
 
@@ -225,6 +226,8 @@
         fmt-str (format-string fields sizes values)
         s (cl-format nil fmt-str (map get-vals R))]
     (str "#{" (.substring s 2 (- (count s) 1)) (if *print-length* (str \newline "  ...") "") "}")))
+
+(defn rpprint [R] (-> R pretty-print-relation println))
 
 ;; saving & loading
 (comment (defn save-relation [R f]
