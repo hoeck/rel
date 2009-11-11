@@ -10,11 +10,14 @@
 
 (use 'hoeck.rel.testdata)
 
+(defmethod fields :clojure [R]
+  (keys (first R)))
+
 (defmethod project :clojure
   ([_] #{})
   ([R conditions]
      (let [cmeta (map #(condition-meta %) conditions)
-           prj-fields (map :name cmeta)]       
+           prj-fields (map :name cmeta)]
        (set (map (fn [tuple] 
                    (zipmap (map keyword prj-fields)
                            (map #(% tuple) conditions)))
@@ -36,12 +39,12 @@
 (defmethod fjoin :clojure
   ;; f is a function which, given a tuple of R, returns a seq of new tuples or nil
   [R f]
-  (set (mapcat #(remove nil? (f %)) R)))
+  (set (mapcat #(map (partial merge %) (f %)) R)))
 
 (defmethod join :clojure
   ([R S join-condition]
      (let [{:keys [field-a field-b join-function join-symbol type]} (join-condition)]
-       (fjoin R (fn [r-tuple] 
+       (fjoin R (fn [r-tuple]
                   (map #(when (join-condition r-tuple %)
                           (merge r-tuple %))
                        S))))))

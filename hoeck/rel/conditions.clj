@@ -27,7 +27,7 @@
 
 (ns hoeck.rel.conditions
   (:use hoeck.library
-        [clojure.contrib.except :only [throw-arg]]))
+        [clojure.contrib.except :only [throw-arg, throwf]]))
 
 (defn rename-keys [m kmap]
   (if m (into (empty m) (map (fn [[k v]] [(or (kmap k) k), v]) m))))
@@ -162,6 +162,12 @@
            :type :identity})
     ([tuple]
        (name tuple))))
+
+(defn star-condition
+  "A condition to match everything: *"
+  []
+  (fn ([] {:type :star})
+    ([& args] (throwf "this condition should not be called"))))
 
 (defn join-condition
   "A special condition with evaluates to (f field-of-relation-A field-of-relation-B),

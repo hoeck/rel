@@ -45,8 +45,6 @@
     (keyword-or-relation *relations*)
     keyword-or-relation))
 
-(defn fields [R] (keys (first R)))
-
 ;; relational operators
 ;;   make them work on global relvar or on a given relation (a set with a meta)
 ;;   add some macro foo to make them look prettier
@@ -66,7 +64,7 @@
 (defn as
   "rename all fields of a relation R such that they have a common prefix"
   [R prefix]
-  (rename* R (zipmap (fields R) (map #(keyword (str prefix "-" (name %))) (fields R)))))
+  (rename* R (zipmap (op/fields R) (map #(keyword (str prefix "-" (name %))) (op/fields R)))))
 
 
 ;; select
@@ -95,20 +93,26 @@
 
 (defn project*
   "Project R according to conditions. Conditions must have a name or must be 
-  identity-conditions."
+  identity-conditions.
+    :field-name generates an identity-condition on :field-name
+    * expands into identity-conditions for all fields of R"
   [R & conditions]
-  (op/project (relation-or-lookup R) (map #(if (keyword? %) 
-                                             (identity-condition %)
-                                             %)
-                                          conditions)))
+  (op/project (relation-or-lookup R) (mapcat #(cond (keyword? %) [(identity-condition %)]
+						    (= * %) (map identity-condition (op/fields R))
+						    :else [%])
+					     conditions)))
 
 (defmacro project
-  "Convienience macro for the project operation."
+  "Convienience macro for the project operation:
+     :field-name expands to (identity-condition :field-name)
+     [expr :name] expands to (condition expr :name)
+     * expands into identity-conditions for all fields of R at runtime."
   [R & exprs]
   `(project* ~R
              ~@(map #(cond (keyword? %) `(identity-condition ~%)
-                           (vector? %) `(condition ~(first %) ~(second %))
-                           :else `(condition ~%))
+			   (vector? %) `(condition ~(first %) ~(second %))
+			   (= '* %) `*
+			   :else `(condition ~%))
                     exprs)))
 
 
@@ -189,7 +193,7 @@
   "Return a map of all :field-name max-size for pretty-printing."
   [R]
   (let [strlen-condition #(fn ([] {:name %}) ([tuple] (-> tuple % pr-str count)))
-        fields (fields R)
+        fields (op/fields R)
         max-len-map (first (apply aggregate*
                                   (apply project* R (map strlen-condition fields))
                                   (map #(aggregate-condition :max %) fields)))]
@@ -213,7 +217,7 @@
   "Print R nicely formatted, readable and and aligned into a string.
   Obey to *print-length*."
   [R]
-  (let [fields (fields R)
+  (let [fields (op/fields R)
         R (if *print-length* (take *print-length* R) R)
         get-vals (fn [m] (map #(% m) fields)) ;; be shure to get alls values in the same order
         sizes (get-vals (field-sizes R))
