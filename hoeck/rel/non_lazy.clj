@@ -5,7 +5,8 @@
   (:use hoeck.rel.operators
         hoeck.rel.conditions
         hoeck.library
-        clojure.contrib.pprint)
+        clojure.contrib.pprint
+	clojure.contrib.except)
   (:require [clojure.set :as set]))
 
 (use 'hoeck.rel.testdata)
@@ -14,21 +15,31 @@
   (keys (first R)))
 
 (defmethod relation clojure.lang.IPersistentVector
-  ;; (relation [:name :path] :c :d :e :f) -> #{{:name :c :path :f} ..}
-  ;; (relation [[:name :path] [[:a :b] [:x :y]]]) -> #{{:name :a :path :b} ..}
-  [rdef data]
+  ;; (relation [:name :path] [:c :d :e :f]) -> #{{:name :c :path :f} ..}
+  ;; (relation [:name :path] [1 2 3] [4 5 6]) -> #{{:name 1 :path 4} {:name 2 :path 5} {:name 3 :path 6}}
+  ;; (relation [[:name :path]] [[:a :b] [:x :y]]) -> #{{:name :a :path :b} ..}
+  [rdef & data]
   (cond (vector? (first rdef))
-          (->> data
-               (map (partial zipmap (first rdef)))
-               set)
+	  (if (next data)
+	    (throw-arg "%s clause expects ONE seq of nested seqs, not multiple seqs.")
+	    (->> data
+		 first
+		 (map (partial zipmap (first rdef)))
+		 set))
         :else
-          (relation (vector rdef) (partition (count rdef) data))))
+	  (if (next data)
+	    (set (apply map #(zipmap rdef %&) data))
+	    (relation (vector rdef) (partition (count rdef) (first data))))))
 
 (defmethod relation clojure.lang.Keyword
-  ;; (relation :name :c :d :e :f) -> #{{:name :c :path :f} ..}
-  [field-name data]
-  (relation (vector field-name) data))
+  ;; (relation :name [:c :d :e :f]) -> #{{:name :c} {:name :a} ..}
+  ;; (relation :name [:c :d :e :f] :value [1 2 3 4]) -> #{{:name :c :value 1} ..}
+  [& rdef]
+  (let [[keys values] (deinterleave rdef)]
+    (apply relation (vec keys) values)))
 
+(defmethod relation clojure.lang.IPersistentSet
+  [s] s)
 
 ;; op
 

@@ -46,6 +46,7 @@
     keyword-or-relation))
 
 (defalias relation op/relation)
+(defalias fields op/fields)
 
 ;; relational operators
 ;;   make them work on global relvar or on a given relation (a set with a meta)
@@ -181,13 +182,6 @@
     (.matches (.toLowerCase x) 
               (str "^" (.replace (.toLowerCase (str expr)) "*" ".*") "$"))))
 
-(defn rlike
-  "Return true if string symbol or keyword x matches the regular expression."
-  [regular-expression x]
-  (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
-    (.matches x regular-expression)))
-
-
 ;; pretty printing
 
 (defn- field-sizes
@@ -218,16 +212,18 @@
   "Print R nicely formatted, readable and and aligned into a string.
   Obey to *print-length*."
   [R]
-  (let [fields (op/fields R)
-        R (if *print-length* (take *print-length* R) R)
-        get-vals (fn [m] (map #(% m) fields)) ;; be shure to get alls values in the same order
-        sizes (get-vals (field-sizes R))
-        values (get-vals (first R))
-        fmt-str (format-string fields sizes values)
-        s (cl-format nil fmt-str (map get-vals R))]
-    (str "#{" (.substring s 2 (- (count s) 1)) (if *print-length* (str \newline "  ...") "") "}")))
+  (if (empty? R)
+    #{}
+    (let [fields (op/fields R)
+	  R (if *print-length* (take *print-length* R) R)
+	  get-vals (fn [m] (map #(% m) fields)) ;; be shure to get alls values in the same order
+	  sizes (get-vals (field-sizes R))
+	  values (get-vals (first R))
+	  fmt-str (format-string fields sizes values)
+	  s (cl-format nil fmt-str (map get-vals R))]
+      (str "#{" (.substring s 2 (- (count s) 1)) (if *print-length* (str \newline "  ...") "") "}"))))
 
-(defn rpprint [R] (-> R pretty-print-relation println))
+(defn rpprint [R] (binding [*print-length* 15] (-> R pretty-print-relation println)))
 
 ;; saving & loading
 (comment (defn save-relation [R f]

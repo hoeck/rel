@@ -27,10 +27,10 @@
   #^{:test #(let [x '(1 2 3 a b c)]
              (and (= (apply interleave (deinterleave x)) x)
               (= (apply interleave (deinterleave x 3)) x)))
-     :doc "Inverse function to `interleave', defaults to (= n 2)."}
+     :doc "Inverse function to `interleave', defaults to (= n 2), returns a vector of sequences."}
   deinterleave
   ([s] (deinterleave 2 s))
-  ([n s] (map #(take-nth n (nthnext s %)) (range n))))
+  ([n s] (vec (map #(take-nth n (nthnext s %)) (range n)))))
 
 (defn partition-with
   "Returns a lazy sequence of lists by splitting the original seq on 
@@ -235,7 +235,7 @@ pred is a function which decides if f should be applied to the current form."
         :else
           (class x)))
            
-(defn all-methods
+(defn- all-methods
   "return a seq of all methods (java.lang.reflect.Method) that (get-class thing) supports."
   [& things]
   (mapcat #(-> (get-class %) .getMethods seq) things))
