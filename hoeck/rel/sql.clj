@@ -1,4 +1,4 @@
-;   Copyright (c) 2008, Erik Soehnel All rights reserved.
+;   Copyright (c) 2009, Erik Soehnel All rights reserved.
 ;
 ;   Redistribution and use in source and binary forms, with or without
 ;   modification, are permitted provided that the following conditions
@@ -25,11 +25,12 @@
 ;   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns hoeck.rel.sql
-  (:use hoeck.rel.core
-        hoeck.rel.sql-utils
-        hoeck.library
-        clojure.contrib.fcase))
+  (:use ;;hoeck.rel.sql-utils
+        hoeck.library))
 
+(defn sql-quote [s]
+  (str \' (-> s str (.replace "\\" "\\\\") (.replace "'" "\\'") (.replace "\"" (str \\ \"))) \'))
+  
 (defn pr-str-sql-value
   [x]
   (cond (or (symbol? x) (keyword? x))
