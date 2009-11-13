@@ -20,7 +20,9 @@
         (catch NullPointerException e# nil)
         (catch LinkageError e# nil)
         (catch IllegalClassFormatException e# nil)
-        (catch ClassNotFoundException e# nil)))
+        (catch ClassNotFoundException e# nil)
+        (catch NoClassDefFoundError e# nil)
+        (catch NullPointerException e# nil)))
 
 
 ;; helpers
@@ -38,17 +40,15 @@
 ;;    "Converts a symbol or string to a java.lang.Class. Works for primitive types too.
 ;;  Returns nil if class named by s doesn't exist.."
        (memoize (fn [s]
-                  (and s
-                       (or (primitive-types (symbol s))
-			   ;;(try-ignore (Class/forName (str s)))
-			   (Class/forName (str s))))))))
+                  (and s (or (primitive-types (symbol s))
+                             (try-ignore (Class/forName (str s)))))))))
 
 (def classname
 ;;  "Converts a Class to a Symbol. For arrays, returns the component name."
   (memoize (fn [#^Class c]
              (if (.isArray c)
                (classname (.getComponentType c))
-               (symbol (.getName c))))))
+               (.getName c)))))
 
 (defn get-static-value [field]
   (let [parent (.getDeclaringClass field)]
@@ -61,17 +61,18 @@
 
 (defn class-fields
   "Return a relation of class fields"
-  [c]
-  (set (map #(hash-map :name (.getName %)
-		       :type (str (.getType %))
-		       :modifiers (.getModifiers %)
-		       :field %)
-	    (seq (.getFields c)))))
+  [classname]
+  (when-let [c (getclass classname)]
+    (set (map #(hash-map :name (.getName %)
+                         :type (str (.getType %))
+                         :modifiers (.getModifiers %)
+                         :field %)
+              (seq (.getFields c))))))
 
 (defn class-static-fields
   "Return a relation of static fields and their values, names and types."
   [c]
-  (project (select (class-fields c) (Modifier/isStatic ~modifiers))
+  (project (select (class-fields (classname c)) (Modifier/isStatic ~modifiers))
 	   *
 	   [(get-static-value ~field) :static-value]))
 
@@ -109,7 +110,7 @@
 (defn refers [ns-rel]  (fjoin-with-ns ns-rel ns-refers  #(relation :symbol (keys %) :var (vals %))))
 (defn interns [ns-rel] (fjoin-with-ns ns-rel ns-interns #(relation :symbol (keys %) :var (vals %))))
 (defn publics [ns-rel] (fjoin-with-ns ns-rel ns-publics #(relation :symbol (keys %) :var (vals %))))
-(defn imports [ns-rel] (fjoin-with-ns ns-rel ns-imports #(relation :symbol (keys %) :class (map class->sym (vals %)))))
+(defn imports [ns-rel] (fjoin-with-ns ns-rel ns-imports #(relation :symbol (keys %) :class (map classname (vals %)))))
 
 
 ;; files
@@ -126,7 +127,7 @@
    :size (.length f)})
 
 (defn files
-  "Given a relation containg a :path field, return a relation of all files below those paths
+  "Given a relation containg a :path field, return a relation of all files and files below those paths
   using `clojure.core/file-seq'."
   [path-relation] 
   (fjoin path-relation 
@@ -147,12 +148,14 @@
   (with-open [inp (JarInputStream. (FileInputStream. (str pathname File/separator filename)))]
     (doall (take-while identity (repeatedly #(.getNextJarEntry inp))))))
 
+(defn jar? [s] (re-matches #"^.*\.jar$" s))
+
 (defn jars
   "Given a file-relation (containing :path and :file fields), return a relation
   of all entries from jars mentioned in the file-relation"
   [file-relation]
   (fjoin (-> file-relation
-	     (select (re-matches #"^.*\.jar$" ~file))
+	     (select (jar? ~file))
 	     (project :path :file)
 	     (rename :file :jar))
 	 #(map jar-entry-tuple (jar-entries (:path %) (:jar %)))))
@@ -189,7 +192,7 @@
   "Return a relation with names of all known classes."
   ([] (classnames (classpaths)))
   ([classpaths] (classnames classpaths (files classpaths)))
-  ([classpaths files] (classnames classpaths files (jars)))
+  ([classpaths files] (classnames classpaths files (jars (select files (jar? ~file)))))
   ([classpaths files jars]
      ;; try loading all classes from all known locations     
      (union (project (classnames-from-classpaths classpaths files) :class)
@@ -201,17 +204,18 @@
 (defn- class-tuple
   [classname]
   (let [c (getclass classname)]
-    {:class classname
-     :type (cond (.isEnum c) :enum
-		 (.isInterface c) :interface
-		 (.isPrimitive c) :primitive
-		 :else :plain)     
-     :modifiers (.getModifiers c)}))
+    (when c {:class classname
+             :type (cond (.isEnum c) :enum
+                         (.isInterface c) :interface
+                         (.isPrimitive c) :primitive
+                         :else :plain)     
+             :modifiers (.getModifiers c)})))
 
 (defn classes [classnames]
   (->> classnames
        (map :class)
        (map class-tuple)
+       (remove nil?)
        (set)))
 
 (defn class-hierarchy [classes]
@@ -219,7 +223,7 @@
       (project :class)
       (fjoin #(relation :super (map classname 
 				    (remove nil? (let [c (getclass (:class %))]
-						   (cons (.getSuperclass c) (.getInterfaces c)))))))))
+                                                   (when c (cons (.getSuperclass c) (.getInterfaces c))))))))))
 
 (defn- method-tuple [#^java.lang.reflect.Method m]
   {:method (symbol (.getName m))
@@ -228,22 +232,24 @@
    :args (map classname (.getParameterTypes m))
    :modifiers (.getModifiers m)})
 
+(def __cm (atom {}))
 (defn class-methods [classname]
+  (reset! __cm classname)
   (fjoin (relation :class [classname])
-	 #(map method-tuple (seq (.getDeclaredMethods (getclass (:class %)))))))
+	 #(map method-tuple (try-ignore (seq (.getDeclaredMethods (getclass (:class %))))))))
 
 (defn all-methods [classnames]
   (fjoin classnames #(class-methods (:class %))))
 
 (defn all-fields [classnames]
-  (fjoin classnames #(class-fields (getclass (:class %)))))
+  (fjoin classnames #(class-fields (:class %))))
 
 (defn make-reflection-relations []
-  ;;"Loading all clojure&java6-classes (23K tuples) needs about 110Mb of PermGen space and about 35MB Heap."
+  ;;"Loading my classpath (32K classes) needs about 150Mb of PermGen space and about 250MB Heap."
   (let [cp (classpaths)
 	fs (files cp)
-	js (jars fs)
-	cn (classnames cp fs js)
+	js (jars (files (select cp (jar? ~path))))
+	cn (select (classnames cp fs js) (not (re-matches #".*$fn__[0-9]+.*" ~class)))
 	c (classes cn)
 	ch (class-hierarchy c)
 	m (all-methods cn)
@@ -268,7 +274,4 @@
   
   
 )
-
-
-
 
