@@ -68,14 +68,14 @@
   db-spec may contain additional key-value pairs that are passed along to
   the driver as properties such as 'user, 'password, etc."
   [& db-spec-keyargs]
-  ;;(println :args db-spec-keyargs)
-  (let [db-spec (as-keyargs db-spec-keyargs)
+  (let [db-spec (apply hash-map db-spec-keyargs)
         _ (Class/forName (:classname db-spec))
         conn (java.sql.DriverManager/getConnection
               (format "jdbc:%s:%s" (:subprotocol db-spec) (:subname db-spec))
-              (con-sql-int/properties (reduce (fn [r k] (if (keyword? k) (dissoc r k) r)) db-spec (keys db-spec))))]
-    (if (not (nil? (db-spec :ta-level))) (.setTransactionIsolation conn (transaction-levels (db-spec :ta-level))))
-    (if (not (nil? (db-spec :autocommit))) (.setAutoCommit conn (db-spec :autocommit)))
+              (con-sql-int/properties (reduce (fn [r k] (if (keyword? k) (dissoc r k) r))
+					      db-spec (keys db-spec))))]
+    (when-let [ta (db-spec :ta-level)] (.setTransactionIsolation conn (transaction-levels ta)))
+    (when-let [ac (db-spec :autocommit)] (.setAutoCommit conn ac))
     conn))
 
 (defn resultvec
@@ -113,13 +113,7 @@
   [s]
   (.remove (str s) \'))
 
-(let [p #"^\w+$"]
-  (defn valid-name!
-    "Throws an error if string s is not a valid sql-identifier (table-name, column-name ..),
-  otherwise returns the String s."
-    [s]
-    (let [n (re-matches p s)]
-    (or n (throw (Exception. (str n " is not a valid sql-name.")))))))
+
 
 (defn name->sql
   "Converts a clojure symbol to a sql-identifier."

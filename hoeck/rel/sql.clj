@@ -25,22 +25,49 @@
 ;   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns hoeck.rel.sql
-  (:use hoeck.library)
+  (:use hoeck.library
+	hoeck.rel.operators
+	clojure.contrib.except
+	clojure.contrib.sql
+	clojure.contrib.sql.internal)
   (:import (clojure.lang IPersistentSet IFn ILookup)
-           (java.util Collection Set)))
+           (java.util Collection Set)
+	   (java.sql Connection Types)))
+
+;; sql utils
 
 (defn sql-quote [s]
   (str \' (-> s str (.replace "\\" "\\\\") (.replace "'" "\\'") (.replace "\"" (str \\ \"))) \'))
-  
-;; sql generation
-(defn sql-from-tablename
-  "Create an sql expression to access a table."
-  ([table-name]  (str "select * from " (name->sql table-name)))
-  ([table-name fields]
-     (str "select " (apply print-str (map name->sql fields)) " from " (name->sql table-name))))
 
+(defn sql-symbol
+    "Throws an error if (str s) is not a valid sql-identifier
+  (table-name, column-name ..), otherwise returns (str s)."
+    [s] 
+    (let [n (re-matches #"^\w+$" (str s))] ;; also check for leading digits?
+      (or n (throwf "`%s' is not a valid sql-name." (str s)))))
 
+;; sql connection
 
+(defn set-connection
+  "set *db* :connection to a permanent connection."
+  [connection-param-map]
+  (alter-var-root #'*db* assoc :connection (get-connection connection-param-map)))
+
+(defn- sql-query
+  ([expr] (sql-query (:connection *db*) expr))
+  ([conn expr]
+     (with-open [s (.prepareStatement conn expr)]
+       (set (resultset-seq (.executeQuery s))))))
+
+(comment 
+(set-connection {:classname "com.sybase.jdbc2.jdbc.SybDriver" 
+		 :subprotocol "sybase:Tds" ;; ^= what
+		 :subname "localhost:2638/temp" ;; ^= where
+		 ;; symbols: connection properties
+		 'user "dbo"
+		 'password "-"
+		 'create false})
+)
 
 ;; deftype & protokoll
 
@@ -55,7 +82,7 @@
   ;; IPersistentCollection
   (.count [] (.count (force _set)))
   (.cons [o] (.cons (force _set) o))
-  (.empty [] (.empty (rel-test _sql {} {})))
+  (.empty [] (.empty (sql-relation _sql {} {})))
   (.equiv [o] (.equiv (force _set) o))
   ;; Seqable
   (.seq [] (.seq (force _set)))
@@ -64,35 +91,33 @@
   (.invoke [arg brg] (.invoke (force _set) arg brg))
   (.applyTo [args] (.applyTo (force _set) args)))
 
+(defmethod relation String [sql-expr]
+  (sql-relation sql-expr (delay (set (sql-query sql-expr)))))
+
+(defmethod relation clojure.lang.Symbol [table-name & fields]
+  (relation (str "select " (if fields (apply str (interpose "," (map sql-symbol fields))) "*")
+		 " from " (sql-symbol table-name))))
+
 (defprotocol Retrievable
   (retrieve [r] "Retrieves a new set from the database"))
 
 (extend sql-relation
-        {:retrieve (fn [r] (set (*connection* (._sql r))))
-         })
+        {:retrieve (fn [r] (relation (:_sql r)))})
 
+;;(use '[hoeck.rel :only (rpprint)])
+;;(rpprint (set (relation 'personen 'pers_id 'name)))
 
 
 ;;; sql:      
-;index-genaration:
-;((index relation) 0 10) -> select * from personen where pers_id = 10
-;((index relation) 0) -> select * from personen
-; seq: select * from (SQL_SELECT) gensym
-; get: select first * from (SQL_SELECT) gensym where field_name = %s
-; count: select count(*) from (SQL_SELECT) gensym
+;; seq: select * from (SQL_SELECT) gensym
+;; get: select first * from (SQL_SELECT) gensym where field_name = %s
+;; count: select count(*) from (SQL_SELECT) gensym
 (defn relation-from-sql
   "Create a HashSet lazily from a sql table (= an sql select expression).
   query-fn is a function which takes an sql-string and returns an resultset" 
   [query-fn sql-select rel-meta]
   (fproxy-relation (merge rel-meta {:sql-select sql-select
-                                    :query-fn query-fn
-                                    :index (fn index-fn
-                                             ([p] (into {} (map (fn [[v]] [v, (index-fn p v)]) (query-fn (format "select distinct %s from (%s) %s" (name->sql (nth (:fields rel-meta) p)) sql-select (name->sql (gensym)))))))
-                                             ([p v] (let [a (name->sql (gensym))]                                                      
-                                                      (set (query-fn (format "select * from (%s) %s where %s.%s = %s"
-                                                                              sql-select a a (name->sql (nth (:fields rel-meta) p)) (pr-str-sql-value v)))))))
-
-                                    })
+                                    :query-fn query-fn})
     {'seq (fn [_] (seq (query-fn sql-select)))
      'count (fn [_] (get-in (query-fn (format "select count(*) from (%s) %s" sql-select (name->sql (gensym)))) [0 0]))
      'contains (let [fields (:fields rel-meta)
