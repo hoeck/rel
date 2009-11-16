@@ -25,27 +25,53 @@
 ;   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 (ns hoeck.rel.sql
-  (:use ;;hoeck.rel.sql-utils
-        hoeck.library))
+  (:use hoeck.library)
+  (:import (clojure.lang IPersistentSet IFn ILookup)
+           (java.util Collection Set)))
 
 (defn sql-quote [s]
   (str \' (-> s str (.replace "\\" "\\\\") (.replace "'" "\\'") (.replace "\"" (str \\ \"))) \'))
   
-(defn pr-str-sql-value
-  [x]
-  (cond (or (symbol? x) (keyword? x))
-          (str "'" (name->sql x) "'")
-        (string? x)
-          (str "'" x "'")
-        :else
-          (pr-str x)))
-
 ;; sql generation
 (defn sql-from-tablename
-  "Create sql to access a table."
+  "Create an sql expression to access a table."
   ([table-name]  (str "select * from " (name->sql table-name)))
   ([table-name fields]
      (str "select " (apply print-str (map name->sql fields)) " from " (name->sql table-name))))
+
+
+
+
+;; deftype & protokoll
+
+(deftype sql-relation [_sql _set] [IPersistentSet IFn ILookup]
+  ;; ILookup
+  (.valAt [k] (.get (force _set) k))
+  (.valAt [k nf] (if (contains? (force _set)) (.get (force _set) k) nf))
+  ;; IPersistentSet
+  (.contains [k] (.contains (force _set) k))
+  (.disjoin [k] (.disjoin (force _set) k))
+  (.get [k] (.get (force _set) k))
+  ;; IPersistentCollection
+  (.count [] (.count (force _set)))
+  (.cons [o] (.cons (force _set) o))
+  (.empty [] (.empty (rel-test _sql {} {})))
+  (.equiv [o] (.equiv (force _set) o))
+  ;; Seqable
+  (.seq [] (.seq (force _set)))
+  ;; IFn
+  (.invoke [arg] (.invoke (force _set) arg))
+  (.invoke [arg brg] (.invoke (force _set) arg brg))
+  (.applyTo [args] (.applyTo (force _set) args)))
+
+(defprotocol Retrievable
+  (retrieve [r] "Retrieves a new set from the database"))
+
+(extend sql-relation
+        {:retrieve (fn [r] (set (*connection* (._sql r))))
+         })
+
+
 
 ;;; sql:      
 ;index-genaration:
