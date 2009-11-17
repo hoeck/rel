@@ -57,7 +57,7 @@
   ([expr] (sql-query (:connection *db*) expr))
   ([conn expr]
      (with-open [s (.prepareStatement conn expr)]
-       (set (resultset-seq (.executeQuery s))))))
+       (doall (resultset-seq (.executeQuery s))))))
 
 (comment 
 (set-connection {:classname "com.sybase.jdbc2.jdbc.SybDriver" 
@@ -71,28 +71,30 @@
 
 ;; deftype & protokoll
 
-(deftype sql-relation [_sql _set] [IPersistentSet IFn ILookup]
+(deftype sql-relation [_sql _seqd _setd] [IPersistentSet IFn ILookup]
   ;; ILookup
-  (.valAt [k] (.get (force _set) k))
-  (.valAt [k nf] (if (contains? (force _set)) (.get (force _set) k) nf))
+  (.valAt [k] (.get (force _setd) k))
+  (.valAt [k nf] (if (contains? (force _setd)) (.get (force _setd) k) nf))
   ;; IPersistentSet
-  (.contains [k] (.contains (force _set) k))
-  (.disjoin [k] (.disjoin (force _set) k))
-  (.get [k] (.get (force _set) k))
+  (.contains [k] (.contains (force _setd) k))
+  (.disjoin [k] (.disjoin (force _setd) k))
+  (.get [k] (.get (force _setd) k))
   ;; IPersistentCollection
-  (.count [] (.count (force _set)))
-  (.cons [o] (.cons (force _set) o))
-  (.empty [] (.empty (sql-relation _sql {} {})))
-  (.equiv [o] (.equiv (force _set) o))
+  (.count [] (count (force _seqd)))
+  (.cons [o] (cons (force _setd) o))
+  (.empty [] (empty (sql-relation _sql {} {})))
+  (.equiv [o] (.equiv (force _setd) o))
   ;; Seqable
-  (.seq [] (.seq (force _set)))
+  (.seq [] (.seq (force _setd)))
   ;; IFn
-  (.invoke [arg] (.invoke (force _set) arg))
-  (.invoke [arg brg] (.invoke (force _set) arg brg))
-  (.applyTo [args] (.applyTo (force _set) args)))
+  (.invoke [arg] (.invoke (force _setd) arg))
+  (.invoke [arg brg] (.invoke (force _setd) arg brg))
+  (.applyTo [args] (.applyTo (force _setd) args)))
 
 (defmethod relation String [sql-expr]
-  (sql-relation sql-expr (delay (set (sql-query sql-expr)))))
+  (let [sq (delay (sql-query sql-expr))
+	st (delay (set (force sq)))]
+    (sql-relation sql-expr sq st {:relation-tag :sql} {})))
 
 (defmethod relation clojure.lang.Symbol [table-name & fields]
   (relation (str "select " (if fields (apply str (interpose "," (map sql-symbol fields))) "*")
@@ -106,91 +108,76 @@
 
 ;;(use '[hoeck.rel :only (rpprint)])
 ;;(rpprint (set (relation 'personen 'pers_id 'name)))
+;;(do (println "-----")
+;;    (dotimes [n 10] (time (reduce + (map :pers_id (relation 'personen 'pers_id))))))
 
 
-;;; sql:      
-;; seq: select * from (SQL_SELECT) gensym
-;; get: select first * from (SQL_SELECT) gensym where field_name = %s
-;; count: select count(*) from (SQL_SELECT) gensym
-(defn relation-from-sql
-  "Create a HashSet lazily from a sql table (= an sql select expression).
-  query-fn is a function which takes an sql-string and returns an resultset" 
-  [query-fn sql-select rel-meta]
-  (fproxy-relation (merge rel-meta {:sql-select sql-select
-                                    :query-fn query-fn})
-    {'seq (fn [_] (seq (query-fn sql-select)))
-     'count (fn [_] (get-in (query-fn (format "select count(*) from (%s) %s" sql-select (name->sql (gensym)))) [0 0]))
-     'contains (let [fields (:fields rel-meta)
-                     t (name->sql (gensym))
-                     qs (format "select first from (%s) %s where " sql-select t)
-                     q-fn (fn [tuple]
-                            (apply str qs (butlast (interleave (map #(str t "." (name->sql %) "=" (pr-str-sql-value %2)) fields tuple) (repeat " and ")))))]
-                 (fn [_ k] 
-                   (if-let [r (query-fn (q-fn k))] (not (empty r)))))
-     'get (fn [this k] (if (.contains this k) k))}))
+;; sql-expressions
 
-(defmethod make-relation :sql
-  [_ sql-fn tablename & initargs]
-  (let [{:keys [fields create]} (merge *make-relation-default-initargs* (apply hash-map initargs))
-        sql-select-str (apply sql-from-tablename tablename fields)
-        m {:relation-tag :sql
-           :fields (or (empty?->nil fields) (:fields (with-open [rs (sql-fn :rs sql-select-str)] (probe-resultset rs))))
-           :index nil}
-        query-fn sql-fn]
-    (relation-from-sql query-fn sql-select-str m)))
+(defn code-walk
+  "Like prewalk, but stop walking on quoted forms."
+  [f form]
+  (if (and (list? form) (= (first form) 'quote))
+    form
+    (walk (partial code-walk f) identity (f form))))
 
-;(def sql-people (make-relation :sql (make-query-fn :subname "/home/timmy-turner/clojure/test.db" default-derby-args)
-;                               'people))
-;sql-people
-;^sql-people
+(defn condition-sql-expr
+  "given a condition, return its expression as an sql-string"
+  [c]
+  (print-str 
+	 (reduce #(code-walk %2 %1)
+		 (condition-expr c 
+				 ;; flag fields (symbol metadata)
+				 #(with-meta (-> % name symbol) {:sql :field}))
+		 [;; replace str with +
+		  #(if (and (seq? %) (= (first %) 'str)) (list* '+ (next %)) %)
+		  ;; flag operators
+		  #(if (and (seq? %) (symbol? (first %)))
+		     (list* (with-meta (first %) {:sql :operator}) (next %))
+		     %)
+		  ;; expand operators: (and a b c) -> (a and b and c)
+		  #(if (seq? %)
+		     (if-let [trans (sql-condition-ops (first %))]
+		       (trans (list* (with-meta (first %) {:sql :operator}) (next %)))
+		       (list* (with-meta (first %) {:sql :function})))
+		     %)
+		  ;; sql-quote strings
+		  #(do (println "XX" % (meta %))
+		       ( cond (or (and (symbol? %)
+				       (not (#{:field :operator} (:sql (meta %)))))
+				  (keyword? %))
+			      (sql-quote (name %))
+			      (string? %)
+			      (sql-quote %)
+			      :else %))])))
 
-;sql-generation:
-;project R NAMES    -> select NAMES from (R) r
-;select R CONDITION -> select fields from (S) s where CONDITION
-;X R S              -> select r.fields,s.fields from (R) r, (S) s
-;join R S r s       -> select r.fields,s.fields from (R) r, (S) s where r.r = s.s
-;union R S          -> select r.fields from (R) r union select s.fields from (S) s
-;difference R S     -> select r.fields from (R) r where not exists (select s.fields from (S) s where not r.fields=s.fields)
-;intersection       -> select r.fields from (R) r where not exists (select s.fields from (S) s where r.fields=s.fields)
+(defn project-condition-sql
+  "generate an sql expression for project column-clauses."
+  [c]
+  (let [m (condition-meta c)
+	n (sql-symbol (name (condition-meta c :name)))]
+    (if (= (m :type) :identity)
+      n
+      (str (condition-sql c) " as " n))))
+
+;; (project-condition-sql (condition (+ ~a "aaaa" ~b)))
+;; (project-condition-sql (identity-condition :a))
+
+;; sql-generation:
+;; project R NAMES    -> select NAMES from (R) r
+;; select R CONDITION -> select fields from (S) s where CONDITION
+;; X R S              -> select r.fields,s.fields from (R) r, (S) s
+;; join R S r s       -> select r.fields,s.fields from (R) r, (S) s where r.r = s.s
+;; union R S          -> select r.fields from (R) r union select s.fields from (S) s
+;; difference R S     -> select r.fields from (R) r where not exists (select s.fields from (S) s where not r.fields=s.fields)
+;; intersection       -> select r.fields from (R) r where not exists (select s.fields from (S) s where r.fields=s.fields)
 
 (defmethod project :sql
-  [relation projected-fields]
-  (let [new-sql-select (str "select " (add-commata (map #(name->sql %) projected-fields))
-                            "  from (" (:sql-select (meta relation)) ") " (name->sql (gensym)))
-        m {:fields (vec (filter (set projected-fields) (fields relation)))}]
-    (relation-from-sql (:query-fn (meta relation)) new-sql-select (merge (meta relation) m))))
-
-(defn clojure-expr->sql-expr
-  [condition-object]
-  (let [quoted-expr? #(and (list? %) (= (first %) 'quote))
-        no-cut (fn [_] false)
-        ;; build various transformations consisting of 
-        ;; [cut-predicate, replacement-prepdicate, replacement-function]
-        fields->fieldnames [quoted-expr? field-name #(name->sql (field-name %))]
-
-        ;; in clojure (str 'a 'b) in sql: (+ "a" "b")
-        clojure-str->sql-plus [quoted-expr?
-                               #(and (list? %) (= (first %) 'str))
-                               #(cons '+ (rest %))]
-
-        infix->prefix [quoted-expr?
-                       #(and (list? %) (contains? sql-condition-ops (first %)))
-                       #((sql-condition-ops (first %)) %)]
-        str-symbols [quoted-expr?
-                     #(and (symbol? %) (not (or (field-name %) (sql-condition-ops %))))
-                     name]
-        str-keywords [quoted-expr?
-                      keyword?
-                      str]
-        quote-strings [no-cut ;quoted-expr?
-                       string?
-                       #(str "'" % "'")]]
-    (print-str
-     ;; apply transformations to the source-form of the condition-object
-     (reduce (fn [expr [cut pred f]]
-               (walk-expr cut pred f expr))
-             (first (condition-object))
-             [str-keywords str-symbols quote-strings fields->fieldnames clojure-str->sql-plus infix->prefix]))))
+  [R conditions]
+  ;; identity-condition: "%s"
+  (let [expr (str "select " (apply str (interpose "," (map project-condition-sql conditions)))
+		  "  from (" (:_sql R) ") " (sql-symbol (gensym "table")))]
+    (relation expr)))
 
 (defmethod select :sql
   [relation condition]

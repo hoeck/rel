@@ -156,7 +156,7 @@
 (defn identity-condition
   "A condition which evaluates to the given field-name."
   [name]
-  (fn ([] {:expr (clojure.core/unquote name)
+  (fn ([] {:expr #(clojure.core/unquote name)
            :fields (list name)
            :name name
            :type :identity})
