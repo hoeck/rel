@@ -176,7 +176,7 @@
   [f name-a name-b]
   (fn ([] {:field-a name-a
            :field-b name-b
-           :join-symbol (cljfn->sym f '???)
+           :join-symbol (cljfn->sym f nil)
            :join-function f
            :type :join})
     ([tuple-a tuple-b]

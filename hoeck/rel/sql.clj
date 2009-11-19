@@ -27,6 +27,8 @@
 (ns hoeck.rel.sql
   (:use hoeck.library
 	hoeck.rel.operators
+        hoeck.rel.conditions
+        clojure.walk
 	clojure.contrib.except
 	clojure.contrib.sql
 	clojure.contrib.sql.internal)
@@ -45,6 +47,16 @@
     [s] 
     (let [n (re-matches #"^\w+$" (str s))] ;; also check for leading digits?
       (or n (throwf "`%s' is not a valid sql-name." (str s)))))
+
+(def sql-types {String "VARCHAR 200"
+                Long "LONG"
+                Integer "INT"
+                Double "DOUBLE"})
+
+(defn sql-type [class-or-value]
+  (let [t (type class-or-value)
+        t (if (= t Class) class-or-value t)]
+    (sql-types t)))
 
 ;; sql connection
 
@@ -66,6 +78,11 @@
 		 ;; symbols: connection properties
 		 'user "dbo"
 		 'password "-"
+		 'create false})
+(set-connection {:classname "org.apache.derby.jdbc.EmbeddedDriver"
+		 :subprotocol "derby"
+		 :subname "/tmp/test.db"
+		 ;; symbols: connection properties
 		 'create false})
 )
 
@@ -112,7 +129,7 @@
 ;;    (dotimes [n 10] (time (reduce + (map :pers_id (relation 'personen 'pers_id))))))
 
 
-;; sql-expressions
+;; sql-expressions from conditions
 
 (defn code-walk
   "Like prewalk, but stop walking on quoted forms."
@@ -142,14 +159,13 @@
 		       (list* (with-meta (first %) {:sql :function})))
 		     %)
 		  ;; sql-quote strings
-		  #(do (println "XX" % (meta %))
-		       ( cond (or (and (symbol? %)
-				       (not (#{:field :operator} (:sql (meta %)))))
-				  (keyword? %))
-			      (sql-quote (name %))
-			      (string? %)
-			      (sql-quote %)
-			      :else %))])))
+		  #(cond (or (and (symbol? %)
+                                  (not (#{:field :operator} (:sql (meta %)))))
+                             (keyword? %))
+                         (sql-quote (name %))
+                         (string? %)
+                         (sql-quote %)
+                         :else %)])))
 
 (defn project-condition-sql
   "generate an sql expression for project column-clauses."
@@ -158,10 +174,25 @@
 	n (sql-symbol (name (condition-meta c :name)))]
     (if (= (m :type) :identity)
       n
-      (str (condition-sql c) " as " n))))
+      (str (condition-sql-expr c) " as " n))))
 
 ;; (project-condition-sql (condition (+ ~a "aaaa" ~b)))
 ;; (project-condition-sql (identity-condition :a))
+
+(defn join-condition-sql
+  "generate a sql where clause from a join-condition."
+  [join-c]
+  (let [cm (condition-meta join-c)]
+    (when-not (= (:type cm) :join)
+      (throwf "cannot use non :join condition in sql-join"))
+    (when-not (:join-symbol cm)
+      (throwf "unknown join condition: %s" (:join-function cm)))
+    (format "where %s %s %s"
+            (sql-symbol (name (:field-a cm)))
+            (:join-symbol cm)
+            (sql-symbol (name (:field-b cm))))))
+
+;; (join-condition-sql (join-condition = :a :b))
 
 ;; sql-generation:
 ;; project R NAMES    -> select NAMES from (R) r
@@ -172,73 +203,62 @@
 ;; difference R S     -> select r.fields from (R) r where not exists (select s.fields from (S) s where not r.fields=s.fields)
 ;; intersection       -> select r.fields from (R) r where not exists (select s.fields from (S) s where r.fields=s.fields)
 
+(defn from-relation-expr [R]
+  (str "(" (:_sql R) ") " (sql-symbol (gensym "table"))))
+
 (defmethod project :sql
   [R conditions]
   ;; identity-condition: "%s"
   (let [expr (str "select " (apply str (interpose "," (map project-condition-sql conditions)))
-		  "  from (" (:_sql R) ") " (sql-symbol (gensym "table")))]
+		  "  from " (from-relation-expr R))]
     (relation expr)))
 
 (defmethod select :sql
-  [relation condition]
-  (let [sql-select (str "select * from (" (:sql-select ^relation) ") " (gensym) " where " (clojure-expr->sql-expr condition))]
-    (relation-from-sql (:query-fn ^relation) sql-select ^relation)))
+  [R condition]
+  (let [expr (str "select * from " (from-relation-expr R)
+                  " where " (condition-sql-expr condition))]
+    (relation expr)))
 
-;(def rrr (select sql-people (condition (= *name 'weilandt))))
-
-(defmethod rename :sql
-  [relation name-newname-pairs]
-  (let [mapping (apply hash-map name-newname-pairs)
-        sql-select (str "select " (add-commata (map #(if-let [new (mapping %)] (str % " as " (name->sql new)) (str (name->sql %))) (fields relation)))
-                        " from (" (:sql-select ^relation) ") " (gensym))
-        m {:fields (vec (map #(or (mapping %) %) (fields relation)))}]
-    (relation-from-sql (:query-fn ^relation) sql-select (merge ^relation m))))
+;;(defmethod rename :sql
+;;  [R name-newname-pairs]
+;;  (let [mapping (apply hash-map name-newname-pairs)
+;;        sql-select (str "select " (add-commata (map #(if-let [new (mapping %)] (str % " as " (name->sql new)) (str (name->sql %)))
+;;                                                    (fields relation)))
+;;                        " from (" R ") " (gensym))
+;;        m {:fields (vec (map #(or (mapping %) %) (fields relation)))}]
+;;    (relation-from-sql (:query-fn ^relation) sql-select (merge ^relation m))))
     
 ;(rename sql-people '(name nachname))
 
 (defmethod xproduct :sql
   [R S]
-  (let [sql-select (str "select * from"
-                        "(" (:sql-select ^R) ") " (gensym) ", "
-                        "(" (:sql-select ^S) ") " (gensym))
-        m {:fields (into (fields R) (fields S))}]
-    (relation-from-sql (:query-fn ^R) sql-select (merge ^R ^S m))))
+  (let [expr (str "select * from "
+                        (from-relation-expr R) ", "
+                        (from-relation-expr S))]
+    (relation expr)))
 
 (defmethod join :sql
-  [R S r s]
-  (let [sql-select (str "select * from"
-                          "(" (:sql-select ^R) ") " (gensym) ", "
-                          "(" (:sql-select ^S) ") " (gensym)
-                        "where " (name->sql r) " = " (name->sql s))
-        m {:fields (into (fields R) (fields S))}]
-    (relation-from-sql (:query-fn ^R) sql-select (merge ^R ^S m))))
+  [R S join-condition]
+  (let [expr (str "select * from "
+                  (from-relation-expr R) ", "
+                  (from-relation-expr S) " "
+                  (join-condition-sql join-condition))]
+    (relation expr)))
 
+(defmethod jfoin :sql
+  [] ;; use derby java-procedures to implement functional join!!!
+  
+  )
 
 (defn sql-set-operation
   [operator R S]
-  (let [sql-select (str "select * from (" (:sql-select ^R) ") " (gensym)
+  (let [expr (str "select * from " (from-relation-expr R)
                         (str " " operator " ")
-                        "select * from (" (:sql-select ^S) ") " (gensym))
-        m {:fields (into (fields R) (fields S))}]
-    (relation-from-sql (:query-fn ^R) sql-select (merge ^R ^S m))))
+                        "select * from " (from-relation-expr S))]
+    (relation expr)))
 
-(defmethod union :sql
-  [R S]
-  (sql-set-operation "union" R S))
-
-(defmethod difference :sql
-  [R S]
-  (sql-set-operation "except"))
-
-(defmethod intersection :sql
-  [R S]
-  (sql-set-operation "intersect"))
+(defmethod union :sql [R S] (sql-set-operation "union" R S))
+(defmethod difference :sql [R S] (sql-set-operation "except"))
+(defmethod intersection :sql [R S] (sql-set-operation "intersect"))
 
 
-
-(comment 
-
-
-
-
-)
