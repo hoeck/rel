@@ -11,9 +11,6 @@
 
 (use 'hoeck.rel.testdata)
 
-(defmethod fields :clojure [R]
-  (keys (first R)))
-
 (defmethod relation clojure.lang.IPersistentVector
   ;; (relation [:name :path] [:c :d :e :f]) -> #{{:name :c :path :f} ..}
   ;; (relation [:name :path] [1 2 3] [4 5 6]) -> #{{:name 1 :path 4} {:name 2 :path 5} {:name 3 :path 6}}
@@ -22,10 +19,12 @@
   (cond (vector? (first rdef))
 	  (if (next data)
 	    (throw-arg "%s clause expects ONE seq of nested seqs, not multiple seqs.")
-	    (->> data
-		 first
-		 (map (partial zipmap (first rdef)))
-		 set))
+	    (let [fields (first rdef)]
+	      (with-meta (->> data
+			      first
+			      (map (partial zipmap fields))
+			      set)
+			 {:fields fields})))
         :else
 	  (if (next data)
 	    (set (apply map #(zipmap rdef %&) data))
@@ -39,7 +38,7 @@
     (apply relation (vec keys) values)))
 
 (defmethod relation clojure.lang.IPersistentSet
-  [s] s)
+  [s] (with-meta s {:fields (-> s first keys)}))
 
 ;; op
 

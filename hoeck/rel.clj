@@ -26,6 +26,7 @@
 
 (ns hoeck.rel
   (:require [hoeck.rel.operators :as op]
+	    [hoeck.rel.fields :as fld]
             [hoeck.rel.testdata :as td])
   (:use hoeck.library
         hoeck.rel.conditions
@@ -46,7 +47,11 @@
     keyword-or-relation))
 
 (defalias relation op/relation)
-(defalias fields op/fields)
+
+(defn fields [R]
+  (with-meta (or ((meta R) :fields)
+		 (-> R first keys))
+	     {:relation-tag :fields}))
 
 ;; relational operators
 ;;   make them work on global relvar or on a given relation (a set with a meta)
@@ -54,10 +59,17 @@
 ;;   always make a functional (trailing `*') and a macro version of each op
 ;;   ins arglists: a uppercase R, S or T always denotes a relation or a relvar
 
+(defmacro rel-operation
+  "Plumbing required around relational operations, like field metadata calculation."
+  [op & op-args]
+  (with-meta (apply op op-args)
+	     {:fields (op ) })) ;; <---- continue HERE!
+
 (defn rename*
   "Given a map of {:old :new, ...}, rename the fields of R."
   [R name-newname-map]
-  (op/rename (relation-or-lookup R) name-newname-map))
+  (with-meta (op/rename (relation-or-lookup R) name-newname-map)
+	     {:fields (op/rename (fields R))}))
 
 (defmacro rename
   "Given a relation or relvar R and pairs of oldname and newname, rename the fields of R."
@@ -67,14 +79,15 @@
 (defn as
   "rename all fields of a relation R such that they have a common prefix"
   [R prefix]
-  (rename* R (zipmap (op/fields R) (map #(keyword (str prefix "-" (name %))) (op/fields R)))))
+  (rename* R (zipmap (fields R) (map #(keyword (str prefix "-" (name %))) (fields R)))))
 
 
 ;; select
 
 (defn select*
   [R condition]
-  (op/select (relation-or-lookup R) condition))
+  (with-meta (op/select (relation-or-lookup R) condition)
+	     {:fields (op/select (fields R))))
 
 (defmacro select 
   ;; todo: pattern-like matching, eg: [a ? b] matches (condition (and (= *0 a) (= *2 b)))
@@ -101,7 +114,7 @@
     * expands into identity-conditions for all fields of R"
   [R & conditions]
   (op/project (relation-or-lookup R) (mapcat #(cond (keyword? %) [(identity-condition %)]
-						    (= * %) (map identity-condition (op/fields R))
+						    (= * %) (map identity-condition (fields R))
 						    :else [%])
 					     conditions)))
 
@@ -188,7 +201,7 @@
   "Return a map of all :field-name max-size for pretty-printing."
   [R]
   (let [strlen-condition #(fn ([] {:name %}) ([tuple] (-> tuple % pr-str count)))
-        fields (op/fields R)
+        fields (fields R)
         max-len-map (first (apply aggregate*
                                   (apply project* R (map strlen-condition fields))
                                   (map #(aggregate-condition :max %) fields)))]
@@ -214,7 +227,7 @@
   [R]
   (if (empty? R)
     #{}
-    (let [fields (op/fields R)
+    (let [fields (fields R)
 	  R (if *print-length* (take *print-length* R) R)
 	  get-vals (fn [m] (map #(% m) fields)) ;; be shure to get alls values in the same order
 	  sizes (get-vals (field-sizes R))
