@@ -26,6 +26,7 @@
 
 (ns hoeck.rel.sql
   (:use hoeck.library
+	;; hoeck.rel
 	hoeck.rel.operators
         hoeck.rel.conditions
         clojure.walk
@@ -203,62 +204,62 @@
 ;; difference R S     -> select r.fields from (R) r where not exists (select s.fields from (S) s where not r.fields=s.fields)
 ;; intersection       -> select r.fields from (R) r where not exists (select s.fields from (S) s where r.fields=s.fields)
 
-(defn from-relation-expr [R]
-  (str "(" (:_sql R) ") " (sql-symbol (gensym "table"))))
+(defn from-relation-expr
+  "given one or more relations, return a string containing a
+  sql from-clause."
+  ([& rels]
+     (->> rels
+	  (map #(str "(" (:_sql %) ") " (sql-symbol (gensym "table"))))
+	  (interpose ", ")
+	  (apply str " from "))))
 
 (defmethod project :sql
   [R conditions]
   ;; identity-condition: "%s"
   (let [expr (str "select " (apply str (interpose "," (map project-condition-sql conditions)))
-		  "  from " (from-relation-expr R))]
+		  (from-relation-expr R))]
     (relation expr)))
 
 (defmethod select :sql
   [R condition]
-  (let [expr (str "select * from " (from-relation-expr R)
+  (let [expr (str "select *" (from-relation-expr R)
                   " where " (condition-sql-expr condition))]
     (relation expr)))
 
-;;(defmethod rename :sql
-;;  [R name-newname-pairs]
-;;  (let [mapping (apply hash-map name-newname-pairs)
-;;        sql-select (str "select " (add-commata (map #(if-let [new (mapping %)] (str % " as " (name->sql new)) (str (name->sql %)))
-;;                                                    (fields relation)))
-;;                        " from (" R ") " (gensym))
-;;        m {:fields (vec (map #(or (mapping %) %) (fields relation)))}]
-;;    (relation-from-sql (:query-fn ^relation) sql-select (merge ^relation m))))
-    
-;(rename sql-people '(name nachname))
+(defmethod rename :sql
+  [R name-newname-map]
+  (let [expr (str "select " 
+		  (->> R hoeck.rel/fields
+		       (map #(str % " as " (sql-symbol (name-newname-map % %))))
+		       (interpose ",")
+		       (apply str))
+		  (from-relation-expr R))]
+    (relation expr)))
 
 (defmethod xproduct :sql
   [R S]
-  (let [expr (str "select * from "
-                        (from-relation-expr R) ", "
-                        (from-relation-expr S))]
+  (let [expr (str "select *" (from-relation-expr R S))]
     (relation expr)))
 
 (defmethod join :sql
   [R S join-condition]
-  (let [expr (str "select * from "
-                  (from-relation-expr R) ", "
-                  (from-relation-expr S) " "
+  (let [expr (str "select *" (from-relation-expr R S) " "
                   (join-condition-sql join-condition))]
     (relation expr)))
 
-(defmethod jfoin :sql
-  [] ;; use derby java-procedures to implement functional join!!!
-  
-  )
+(defmethod fjoin :sql
+  [R f] ;; use derby java-procedures to implement functional join!!!
+  ;; or directly put data into derby:
+  (fjoin (set R) f))
 
 (defn sql-set-operation
   [operator R S]
-  (let [expr (str "select * from " (from-relation-expr R)
-                        (str " " operator " ")
-                        "select * from " (from-relation-expr S))]
+  (let [expr (str "select *" (from-relation-expr R)
+		  (str " " operator " ")
+		  "select *" (from-relation-expr S))]
     (relation expr)))
 
 (defmethod union :sql [R S] (sql-set-operation "union" R S))
 (defmethod difference :sql [R S] (sql-set-operation "except"))
 (defmethod intersection :sql [R S] (sql-set-operation "intersect"))
-
 

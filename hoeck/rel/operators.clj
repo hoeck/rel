@@ -73,6 +73,7 @@
 
 ;; constructor methods
 (defmulti relation type-dispatch)
-(defmulti fields op-dispatch-fn)
+;; type dispatch is not really suited for creating relations,
+;; would be better to have an (open) clojure-type/metadata dispatch
 
 

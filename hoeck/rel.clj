@@ -35,6 +35,9 @@
         clojure.contrib.duck-streams
         clojure.contrib.pprint))
 
+(declare fields)
+(require 'hoeck.rel.sql)
+
 ;; global relvar store, allows referring to relations with a keyword
 
 (def *relations* {})
@@ -51,7 +54,31 @@
 (defn fields [R]
   (with-meta (or ((meta R) :fields)
 		 (-> R first keys))
-	     {:relation-tag :fields}))
+	     {:relation-tag :field}))
+
+(defn relation? [R]
+  (:relation-tag (meta R)))
+
+(defn- ensure-relation [R]
+  (if (relation? R) R (relation R)))
+
+(defmacro rel-operation
+  "Plumbing required around relational operations, like field metadata calculation."
+  [op [& rels] & op-args]
+  ;; operation-schema, eg: (select R     (condition (= ~id 10)))
+  ;;      -> (rel-operation select [R]   (condition (= ~id 10)))
+  ;;                       (join   R S   (join-condition = :ref-id :id)
+  ;;      -> (rel-operation select [R S] (join-condition = :ref-id :id))
+  (let [op-args_ (take (count op-args) (repeatedly gensym))
+	rels_ (take (count rels) (repeatedly gensym))]
+    `(let [~@(mapcat list op-args_ op-args)
+	   ~@(mapcat list rels_ 
+		     (map (fn [r] `(-> ~r relation-or-lookup ensure-relation)) rels))]
+       (with-meta (~op ~@rels_ ~@op-args_)
+		  {:fields (~op ~@(map list (repeat `fields) rels_)
+				~@op-args_)}))))
+
+;; (rel-operation op/select [#{{:id 1} {:id nil}}] (condition ~id))
 
 ;; relational operators
 ;;   make them work on global relvar or on a given relation (a set with a meta)
@@ -59,17 +86,11 @@
 ;;   always make a functional (trailing `*') and a macro version of each op
 ;;   ins arglists: a uppercase R, S or T always denotes a relation or a relvar
 
-(defmacro rel-operation
-  "Plumbing required around relational operations, like field metadata calculation."
-  [op & op-args]
-  (with-meta (apply op op-args)
-	     {:fields (op ) })) ;; <---- continue HERE!
 
 (defn rename*
   "Given a map of {:old :new, ...}, rename the fields of R."
   [R name-newname-map]
-  (with-meta (op/rename (relation-or-lookup R) name-newname-map)
-	     {:fields (op/rename (fields R))}))
+  (rel-operation op/rename [R] name-newname-map))
 
 (defmacro rename
   "Given a relation or relvar R and pairs of oldname and newname, rename the fields of R."
@@ -86,8 +107,7 @@
 
 (defn select*
   [R condition]
-  (with-meta (op/select (relation-or-lookup R) condition)
-	     {:fields (op/select (fields R))))
+  (rel-operation op/select [R] condition))
 
 (defmacro select 
   ;; todo: pattern-like matching, eg: [a ? b] matches (condition (and (= *0 a) (= *2 b)))
@@ -97,7 +117,7 @@
   ;;       or [(< 10 ?) ? (not= #{dresden, rostock})]
   ;;        known as: query-by-example
   ;;        -> use all of {[()]} 
-  ;;       multiarg-select: keyword value -> hashmap access like `get' where (name :keyword) == field-name
+  ;;       multiarg-select: keyword value -> hashmap access like `gete' where (name :keyword) == field-name
   ;;       => qbe ????
   "Macro around select. A Condition is a form wrapped around the condition macro.
   Ex: (select :person (< 20 ~age)) to select all persons of :age greater than 20."
@@ -113,10 +133,12 @@
     :field-name generates an identity-condition on :field-name
     * expands into identity-conditions for all fields of R"
   [R & conditions]
-  (op/project (relation-or-lookup R) (mapcat #(cond (keyword? %) [(identity-condition %)]
-						    (= * %) (map identity-condition (fields R))
-						    :else [%])
-					     conditions)))
+  (rel-operation op/project 
+		 [R]
+		 (mapcat #(cond (keyword? %) [(identity-condition %)]
+			     (= * %) (map identity-condition (fields R))
+			     :else [%])
+		      conditions)))
 
 (defmacro project
   "Convienience macro for the project operation:
@@ -133,8 +155,13 @@
 
 ;; union, difference, intersection
 
-(defmacro def-set-operator [name op]
-  `(defn ~name [& rels#] (apply ~op (map relation-or-lookup rels#))))
+(defmacro #^{:private true} def-set-operator 
+  "name must be symbol, op must be a symbol to an operation."
+  [name op]
+  `(defn ~name
+     ([R#] R#) ;; call relational identity?
+     ([R# S#] (rel-operation ~op [R# S#]))
+     ([R# S# & more#] (apply ~name (~name R# S#) more#))))
 
 (def-set-operator union op/union)
 (def-set-operator intersection op/intersection)
@@ -144,23 +171,23 @@
 ;; joins
 
 (defn join [R S join-condition]
-  (op/join (relation-or-lookup R)
-           (relation-or-lookup S)
-           join-condition))
+  (rel-operation op/join 
+		 [R S]
+		 join-condition))
 
 (defn outer-join [R S join-condition]
-  (op/outer-join (relation-or-lookup R)
-                 (relation-or-lookup S)
+  (rel-operation op/outer-join 
+		 [R S]
                  join-condition))
 
 (defn fjoin [R f]
-  (op/fjoin (relation-or-lookup R) f))
+  (rel-operation op/fjoin [R] f))
 
 
-;; xproduct
+;; crossproduct
 
 (defn xproduct [R S]
-  (op/xproduct (relation-or-lookup R) (relation-or-lookup S)))
+  (rel-operation op/xproduct [R S]))
 
 
 ;; aggregate
@@ -169,7 +196,9 @@
   "Use aggregate-conditions to reduce over a range of fields.
   To groups fields, use identity-conditions."
   [R & conditions]
-  (op/aggregate (relation-or-lookup R) conditions))
+  (rel-operation op/aggregate
+		 [R]
+		 conditions))
 
 (defmacro aggregate
   "conditions are vectors/lists of either functions(1) or
@@ -229,18 +258,23 @@
     #{}
     (let [fields (fields R)
 	  R (if *print-length* (take *print-length* R) R)
-	  get-vals (fn [m] (map #(% m) fields)) ;; be shure to get alls values in the same order
+	  ;; be shure to get alls values in the same order
+	  get-vals (fn [m] (map #(% m) fields))
 	  sizes (get-vals (field-sizes R))
 	  values (get-vals (first R))
 	  fmt-str (format-string fields sizes values)
 	  s (cl-format nil fmt-str (map get-vals R))]
-      (str "#{" (.substring s 2 (- (count s) 1)) (if *print-length* (str \newline "  ...") "") "}"))))
+      (str "#{" 
+	   (.substring s 2 (- (count s) 1))
+	   (if *print-length*
+	     (str \newline "  ...")
+	     "")
+	   "}"))))
 
 (defn rpprint [R] (binding [*print-length* 15] (-> R pretty-print-relation println)))
 
 ;; saving & loading
 (comment (defn save-relation [R f]
            (with-out-writer f
-             (binding [*pretty-print-relation-opts* (assoc *pretty-print-relation-opts* :max-lines nil :max-linesize nil)]
-               (print (relation-or-lookup R))))))
+	     (print (relation-or-lookup R)))))
 
