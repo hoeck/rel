@@ -3,7 +3,8 @@
   (:use hoeck.rel.sql
         hoeck.rel.conditions ;; for update-where        
         clojure.contrib.pprint)
-  (:require [hoeck.rel.sql.jdbc :as jdbc]))
+  (:require [hoeck.rel.sql.jdbc :as jdbc]
+	    [clojure.contrib.sql :as csql]))
 
 
 ;; sql data manipulation
@@ -45,29 +46,30 @@
                                  pkey-value-pairs))
         sql-pairs (fn [[k v]] [(sql-symbol k) (sql-print v)])
         pkey (map keyword (jdbc/primary-key-columns table-name))]
-    (doseq [t tuple-seq]
-      ;;sql-execute 
-      (let [vals (map sql-pairs (apply dissoc t pkey))]
-        (when (not (empty? vals))
-          (sql-execute (update-stmt vals (map sql-pairs (select-keys t pkey)))))))))
+    (csql/transaction
+     (doseq [t tuple-seq]
+       ;;sql-execute 
+       (let [vals (map sql-pairs (apply dissoc t pkey))]
+	 (when (not (empty? vals))
+	   (sql-execute (update-stmt vals (map sql-pairs (select-keys t pkey))))))))))
 
 (comment (def rr (relation 'person 'id 'status 'name))
          (update-table 'person
                        ;; changeset, applied using update-clause
                        '({:id 1000 :name "frank"}
                          {:id 1000 :status -1}
-                         {:id 1001 :name "erhardt" :status 0})))
-
+                         {:id 1001 :name "erhardt" :status 0}))
+)
+	 
 ;; updating a relation using its resultset and another relation
 ;; versatile but limited for big Rs
-
 (defn update-relation 
   "Given an sql-relation R, update its rows according to the new relation S
   by stepping through the resultset of R and updating fields with values from
   S where primary keys match.
   Useful for small relations R, cause the whole R must be traversed in order to
   change values."
-  [R S]  
+  [R S]
   ;; todo
   
   
@@ -79,5 +81,11 @@
 
 
 ;; updating a relation by using delete and insert
+	 
 
-(defn delete-insert [])
+(defn delete-insert [table changeset]
+  
+
+  )
+
+

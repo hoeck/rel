@@ -24,7 +24,7 @@
   ;; IPersistentCollection
   (.count [] (count (force _seqd)))
   (.cons [o] (cons (force _setd) o))
-  (.empty [] (empty (sql-relation _sql {} {})))
+  (.empty [] (sql-relation _sql {} {}))
   (.equiv [o] (.equiv (force _setd) o))
   ;; Seqable
   (.seq [] (.seq (force _setd)))
@@ -57,7 +57,8 @@
 (defprotocol Retrievable
   (retrieve [r] "Retrieves a new set from the database"))
 
-(extend sql-relation
+(extend ::sql-relation
+	Retrievable
         {:retrieve (fn [r] (relation (:_sql r)))})
 
 (defn project-condition-sql
@@ -169,3 +170,121 @@
                   (from-relation-expr R)
                   " group by " (->> groups (interpose ", ") print-str))]
     (relation expr)))
+
+
+
+
+
+
+(comment ;; updateable relations
+
+
+(import '(clojure.lang IPersistentMap IPersistentSet IFn ILookup))
+;; option 1: use plain hashsets and define a tuple type with custom hashcode and equals:
+
+(deftype tuple [m idkeys] [IPersistentMap IFn ILookup]
+  (.hashCode [] (.hashCode (select-keys m idkeys)))
+  (.equals [o] (if (= (type o) ::tuple)
+		 (and (= idkeys (.idkeys #^::tuple o))
+		      (reduce #(and %1 (= (m %2) (o %2))) true idkeys))
+		 (= (select-keys m idkeys) o)))
+  ;; ILookup
+  (.valAt [k] (.valAt m k))
+  (.valAt [k nf] (.valAt m k nf))
+  ;; IPersistentMap
+  (.containsKey [k] (.containsKey m k))
+  (.entryAt [k] (.entryAt m k))
+  (.assoc [k v] (tuple. (.assoc m k v) idkeys))
+  (.without [k] (tuple. (.without m k) (disj idkeys k)))
+  ;; IPersistentCollection
+  (.count [] (count m))
+  (.cons [o] (cons m o))
+  (.empty [] (tuple. (empty m) idkeys))
+  (.equiv [o] (.equiv m o))
+  ;; Seqable
+  (.seq [] (.seq m))
+  ;; IFn
+  (.invoke [arg] (.invoke m arg))
+  (.invoke [arg brg] (.invoke m arg brg))
+  (.applyTo [args] (.applyTo m args)))
+
+(def td (set (list
+	      (tuple {:a 1 :b 'A} #{:a})
+	      (tuple {:a 2 :b 'B} #{:a})
+	      (tuple {:a 3 :b 'C} #{:a})
+	      (tuple {:a 4 :b 'D} #{:a}))))
+
+(defn mutate [R tup]
+  (let [pkey (.idkeys (first R))
+	tup (tuple tup pkey)]
+    (-> R 
+	(disj tup)
+	(conj tup))))
+
+(rpprint (mutate td {:a 3 :b 'XXX}))
+
+;; pros: + union/difference/intersection for free
+;;       + little overhead on set, not complicated even for multiple primary keys
+;;       + special (and faster?) cases for single identity-key tuples possible
+;; cons: - ugly equals (equals between hashmap and tuple is always broken, what about equals between two different tuples)
+;;       - expensive hashCode?
+
+
+;; option 2: use a modified set with plain hashmaps as tuples
+;; behind the set-scenes, use a clojure hashmap from unique-keys to tuples (-> clojure.set/index)
+
+(deftype indexed-relation [m ikeys] [IPersistentSet IFn ILookup]
+  ;; ILookup
+  (.valAt [k] (.valAt this k nil))
+  (.valAt [k nf] (if (map? k)
+		   (.valAt m (select-keys k ikeys) nf)
+		   (.valAt m k nf)))
+  ;; IPersistentSet
+  (.contains [k] (boolean (find m (if (map? k)
+				    (select-keys k ikeys)
+				    k))))
+  (.disjoin [k] (indexed-relation. (.dissoc (select-keys k ikeys)) ikeys))
+  (.get [k] (.valAt this k nil))
+  ;; IPersistentCollection
+  (.count [] (count m))
+  (.cons [o] (indexed-relation. (if (map? o)
+				  (assoc m (select-keys o ikeys) o)
+				  (assoc m {} o))
+				ikeys))
+  (.empty [] (indexed-relation. {} ikeys))
+  (.equiv [o] (cond (= ::indexed-relation (type o)) (and (= ikeys (.ikeys o)) (= m (.m o)))
+		    (set? o) (= o this)
+		    :else false))
+  ;; Seqable
+  (.seq [] (vals m))
+  ;; IFn
+  (.invoke [arg] (.valAt this arg))
+  (.invoke [arg brg] (.valAt this arg brg))
+  (.applyTo [args] (.valAt this (first args) (second args))))
+
+(defn unique-index
+  "Returns a map of index-tuple to tuple mappings. Throws an exception when
+  ks do not form a unique index on xrel."
+  [xrel ks]
+  (let [i (reduce #(assoc % (select-keys %2 ks) %2) {} xrel)]
+    (when (not= (count i) (count xrel))
+      (throwf "%s on relation %s is not unique, cannot create unique-index"
+	      ks (first xrel)))
+    i))
+
+
+(use 'clojure.contrib.pprint)
+(pprint (unique-index (seq hoeck.rel.testdata/people) [:id]))
+
+(defn make-indexed-relation [s index-ks] 
+  (indexed-relation (unique-index s index-ks) index-ks))
+
+(def ii (make-indexed-relation hoeck.rel.testdata/people [:id]))
+(rpprint ii)
+(rpprint (conj ii {:id 1 :name 'mathias-1})) ;; simple example works
+
+(defn mutate [R tuple]
+  (conj R (merge (R tuple) (reduce dissoc tuple (.ikeys R)))))
+
+(rpprint (mutate ii {:id 1 :name 'mathias-1}))
+)

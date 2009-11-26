@@ -43,7 +43,10 @@
 
 ;; sql 
 
-(defn sql-quote [s]
+(defn sql-quote 
+  "Given an object, use (str object) to obtain its printed representation and
+  quote it so that an sql-interpreter reads it correctly."
+  [s]
   (str \' (-> s str (.replace "\\" "\\\\") (.replace "'" "\\'") (.replace "\"" (str \\ \"))) \'))
 
 (defn sql-symbol
@@ -60,7 +63,7 @@
   is readable by an sql-interpreter."
   [s]
   (if (number? s)
-    (str s) 
+    (str s)
     (sql-quote s)))
 
 
@@ -75,6 +78,7 @@
   "Executes an sql-expression and returns a resultset-seq"
   ([expr] (sql-query (:connection *db*) expr))
   ([conn expr]
+     (when (nil? conn) (throwf "connection is nil, use set-connection to establish one"))
      (with-open [s (.prepareStatement conn expr)]
        (doall (resultset-seq (.executeQuery s))))))
 
@@ -82,6 +86,7 @@
   "Executes an sql-statement and returns nil."
   ([expr] (sql-execute (:connection *db*) expr))
   ([conn expr]
+     (when (nil? conn) (throwf "connection is nil, use set-connection to establish one"))
      (with-open [s (.prepareStatement conn expr)]
        (.execute s)
        nil)))
@@ -147,7 +152,4 @@
 ;;  (let [table-name {:primary-key 'foo}]
 ;;    
 ;;    ))
-
-
-;; load more sql stuff (all require/use hoeck.rel.sql) - require or  load????
 
