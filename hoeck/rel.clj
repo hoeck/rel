@@ -27,7 +27,9 @@
 (ns hoeck.rel
   (:require [hoeck.rel.operators :as op]
 	    [hoeck.rel.fields :as fld]
-            [hoeck.rel.testdata :as td])
+            [hoeck.rel.testdata :as td]
+            [clojure.set :as set])
+  ;; require hoeck.rel.sql at the bottom
   (:use hoeck.library
         hoeck.rel.conditions
         hoeck.rel.non-lazy
@@ -36,7 +38,7 @@
         clojure.contrib.pprint))
 
 (declare fields)
-(require 'hoeck.rel.sql)
+
 
 ;; global relvar store, allows referring to relations with a keyword
 
@@ -51,10 +53,16 @@
 
 (defalias relation op/relation)
 
-(defn fields [R]
-  (with-meta (or ((meta R) :fields)
-		 (-> R first keys))
-	     {:relation-tag :field}))
+(defn fields 
+  "Return a set of fields of a given relation. Fields are symbols and may have
+  metadata, such as type and origin.
+  (Note: relation tuples use keywords - should they use symbols too?)"
+  [R]
+  (with-meta (or (:fields (meta R))
+                 (->> R first keys
+                      (map #(-> % name symbol))
+                      set))
+             {:relation-tag :field}))
 
 (defn relation? [R]
   (:relation-tag (meta R)))
@@ -100,7 +108,7 @@
 (defn as
   "rename all fields of a relation R such that they have a common prefix"
   [R prefix]
-  (rename* R (zipmap (fields R) (map #(keyword (str prefix "-" (name %))) (fields R)))))
+  (rename* R (zipmap (fields R) (map #(symbol (str prefix "" (name %))) (fields R)))))
 
 
 ;; select
@@ -127,6 +135,12 @@
 
 ;; project
 
+(defn project-condition [R thing]
+  (cond (keyword? thing) [(identity-condition thing)]
+        (symbol? thing) [(identity-condition (keyword thing))]
+        (= * thing) (map #(-> % keyword identity-condition) (fields R))
+        :else [thing]))
+
 (defn project*
   "Project R according to conditions. Conditions must have a name or must be 
   identity-conditions.
@@ -135,10 +149,8 @@
   [R & conditions]
   (rel-operation op/project 
 		 [R]
-		 (mapcat #(cond (keyword? %) [(identity-condition %)]
-			     (= * %) (map identity-condition (fields R))
-			     :else [%])
-		      conditions)))
+		 (mapcat #(project-condition R %)
+                         conditions)))
 
 (defmacro project
   "Convienience macro for the project operation:
@@ -147,8 +159,8 @@
      * expands into identity-conditions for all fields of R at runtime."
   [R & exprs]
   `(project* ~R
-             ~@(map #(cond (keyword? %) `(identity-condition ~%)
-			   (vector? %) `(condition ~(first %) ~(second %))
+             ~@(map #(cond (or (keyword? %) (symbol? %)) `(identity-condition '~%)
+			   (vector? %) `(condition ~(first %) '~(second %))
 			   (= '* %) `*
 			   :else `(condition ~%))
                     exprs)))
@@ -207,7 +219,7 @@
   (1) see hoeck.rel.conditions/aggregate-condition-types for 
   definitions of such functions."
   [R & conditions]
-  `(aggregate* ~R ~@(map #(cond (keyword? %) `(identity-condition ~%)
+  `(aggregate* ~R ~@(map #(cond (or (keyword? %) (symbol? %)) `(identity-condition ~%)
                                 (or (list? %) (vector? %))
                                   `(aggregate-condition ~(first %) ~(second %)))
                          conditions)))
@@ -229,10 +241,15 @@
 (defn- field-sizes
   "Return a map of all :field-name max-size for pretty-printing."
   [R]
-  (let [strlen-condition #(fn ([] {:name %}) ([tuple] (-> tuple % pr-str count)))
+  (let [R (set R) ;; make it a clojure relation
+        strlen-condition #(fn ([] {:name %}) ([tuple] (-> tuple % pr-str count)))
         fields (fields R)
         max-len-map (first (apply aggregate*
-                                  (apply project* R (map strlen-condition fields))
+                                  (->> fields
+                                       (map keyword)
+                                       (map strlen-condition)
+                                       (apply project* R))
+                                  ;;(apply project* R (map strlen-condition fields))
                                   (map #(aggregate-condition :max %) fields)))]
     (into {} (map (fn [[k v]] [k (-> k str count (+ 1 v))]) max-len-map))))
 
@@ -244,9 +261,9 @@
                  (interpose " "
                             (map (fn [name size val]
                                    (cond (number? val) ;; right-aligned
-					   (str "~" size "<" name "~;~s~>")
+                                         (str "~" size "<" name "~;~s~>")
 					 :else ;; left-aligned
-					   (str "~" size "@<" name " ~s~>")))
+                                         (str "~" size "@<" name " ~s~>")))
                                  names sizes vals))
                  (list "}~%~}"))))
 
@@ -256,7 +273,7 @@
   [R]
   (if (empty? R)
     #{}
-    (let [fields (fields R)
+    (let [fields (map keyword (fields R))
 	  R (if *print-length* (take *print-length* R) R)
 	  ;; be shure to get alls values in the same order
 	  get-vals (fn [m] (map #(% m) fields))
@@ -277,4 +294,13 @@
 (comment (defn save-relation [R f]
            (with-out-writer f
 	     (print (relation-or-lookup R)))))
+
+
+;; sql uses fields and some parts of non_lazy and conditions
+(require 'hoeck.rel.sql)
+(require 'hoeck.rel.sql.relations)
+(require 'hoeck.rel.sql.jdbc)
+(require 'hoeck.rel.sql.create)
+(require 'hoeck.rel.sql.update)
+
 

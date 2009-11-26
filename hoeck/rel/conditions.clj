@@ -156,12 +156,13 @@
 (defn identity-condition
   "A condition which evaluates to the given field-name."
   [name]
-  (fn ([] {:expr #(clojure.core/unquote name)
-           :fields (list name)
-           :name name
-           :type :identity})
-    ([tuple]
-       (name tuple))))
+  (let [name (keyword name)]
+    (fn ([] {:expr #(clojure.core/unquote name)
+             :fields (list name)
+             :name name
+             :type :identity})
+      ([tuple]
+         (name tuple)))))
 
 (defn star-condition
   "A condition to match everything: *"
@@ -174,14 +175,16 @@
   where f is a symbol. When f is one of the core =, <, >, >=, <= or not= 
   functions, its transatable to an sql-join statement."
   [f name-a name-b]
-  (fn ([] {:field-a name-a
-           :field-b name-b
-           :join-symbol (cljfn->sym f nil)
-           :join-function f
-           :type :join})
-    ([tuple-a tuple-b]
-       (f (get tuple-a name-a)
-          (get tuple-b name-b)))))
+  (let [name-a (keyword name-a)
+        name-b (keyword name-b)]
+    (fn ([] {:field-a name-a
+             :field-b name-b
+             :join-symbol (cljfn->sym f nil)
+             :join-function f
+             :type :join})
+      ([tuple-a tuple-b]
+         (f (get tuple-a name-a)
+            (get tuple-b name-b))))))
 
 (def aggregate-condition-types
      {:sum #(apply + %)
@@ -196,7 +199,8 @@
   aggf is either a keyword denoting a standard function or a function, which is fed with a seq
   of tuple fields of field-name."
   [function-or-keyword field-name]
-  (let [agg-f (aggregate-condition-types function-or-keyword)]
+  (let [field-name (keyword field-name)
+        agg-f (aggregate-condition-types function-or-keyword)]
     (fn ([] {:name field-name
              :type :aggregate
              :function function-or-keyword})

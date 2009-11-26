@@ -38,7 +38,7 @@
     (apply relation (vec keys) values)))
 
 (defmethod relation clojure.lang.IPersistentSet
-  [s] (with-meta s {:fields (-> s first keys)}))
+  [s] s) ;; identity
 
 ;; op
 
@@ -93,12 +93,24 @@
 (defmethod difference   :clojure [& rels] (apply set/difference rels))
 (defmethod intersection :clojure [& rels] (apply set/intersection rels))
 
+;; helpers for aggregate
+(defn get-aggregate-conditions
+  "Given some conditions, return all aggregate-conditions."
+  [conditions]
+  (filter #(= (condition-meta % :type) :aggregate) conditions))
+
+(defn get-group-conditions
+  "Given some conditions, the names of all identity-conditions
+  (aka the groups in an aggregate operation)"
+  [conditions]
+  (->>  conditions
+        (filter #(= (condition-meta % :type) :identity))
+        (map #(condition-meta % :name))))
+
 (defmethod aggregate :clojure
   [R conditions] ;; identity-conditions and or aggregate-condition
-  (let [aggregates (filter #(= (condition-meta % :type) :aggregate) conditions)
-        groups (->>  conditions
-                     (filter #(= (condition-meta % :type) :identity))
-                     (map #(condition-meta % :name)))
+  (let [aggregates (get-aggregate-conditions conditions)
+        groups (get-group-conditions conditions)
         agg-names (map #(condition-meta % :name) aggregates)
         index (set/index R groups)]
     (set (map (fn [[k v]]

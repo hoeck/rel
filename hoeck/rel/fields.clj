@@ -15,17 +15,20 @@
   "given a set and a set/seq of fields, check wether all used-fields
   are contained in R, otherwise throw an Exception."
   [R used-fields]
-  (let [unknown-fields (set/difference (set used-fields) R)]
+  (let [unknown-fields (set/difference (->> used-fields (map keyword) set)
+                                       (->> R (map keyword) set))]
     (when-not (empty? unknown-fields)
       (throwf "unknown fields: %s" unknown-fields))))
 
 (defmethod project :field [R conditions]
   (let [cm (map #(condition-meta %) conditions)
-	ineligible-conditions (remove #{:identity :user} (map :type cm))]
+	ineligible-conditions (remove #(or (#{:identity :user} %)
+                                           (nil? %)) 
+                                      (map :type cm))]
     (check-unknown-fields R (mapcat :fields cm))
     (when-not (empty? ineligible-conditions)
       (throwf "Only :identity and :user conditions allowed in project, not: %s"
-	      ineligible-conditions))
+	      (print-str ineligible-conditions)))
     (set (map :name cm))))
 
 (comment (project (with-meta #{:a :b :c} {:relation-tag :field})
@@ -65,10 +68,18 @@
   `(defmethod ~op-name :field [R# S#]
      (when-not (= R# S#)
        (throwf "The two relations are not union compatible, the fields in question are: %s"
-	       (union (difference R# S#) (difference S# R#))))
-     (union R# S#)))
+	       (set/union (set/difference R# S#) (set/difference S# R#))))
+     (set/union R# S#)))
 
 (def-set-op union)
 (def-set-op difference)
 (def-set-op intersection)
 
+
+(defmethod aggregate :field [R conditions]
+  (let [cm (map #(condition-meta %) conditions)
+        ineligible (remove #{:aggregate :identity} (map :type cm))]
+    (when-not (empty? ineligible)
+      (throwf "only :aggregate and :identity conditions allowed in aggregate, not %s"
+              (print-str ineligible)))
+    R))

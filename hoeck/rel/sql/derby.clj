@@ -1,14 +1,17 @@
 
 (ns hoeck.rel.sql.derby
-  (:use hoeck.rel.operators)
+  (:use hoeck.rel.sql.db
+        hoeck.rel.sql
+        hoeck.rel)
   (:import (java.sql ResultSet Blob Clob Date Timestamp Time))
   (:gen-class :name :hoeck.rel.sql.derby.Function
-              :methods [#^{:static true} [invoke [] java.sql.ResultSet]])
-  )
+              :methods [;; table function                v--varargs allowed???
+                        #^{:static true} [invoke [String & Object] java.sql.ResultSet]
+                        ]))
 
-;; 
+;; (server-side)(table-)functions for derby ;; INCOMPLETE
 
-(defn invoke [])
+(defn invoke [this function-name & args])
 
 ;; (set (vals '{
 ;;              BIGINT 	getLong
@@ -82,11 +85,19 @@
   (#^int .getInt [#^int i] (int (relation-field-get))))
 
 
-(defn resultset-from-relation [m]
-  (let [table-def]) (zipmap (hoeck.rel/fields m))
-
-  ;;(require hoeck.rel.operators/fields)
-  )
-
-
 ;;fjoin: (select * from R, table f(R) where r.x = f.x)
+
+;; derby sql "reflection"
+
+(defn tables
+  "return a relation of :name, :definition of all tables in the current derby db
+  connection."  
+  []
+  (let [;; TABLEID 	CHAR 	36 	false 	unique identifier for table or view
+        ;; TABLENAME 	VARCHAR 	128 	false 	table or view name
+        ;; TABLETYPE 	CHAR 	1 	false 	'S' (system table), 'T' (user table), 'A' (synonym), or 'V' (view)
+        t (relation 'sys.systables 'tableid 'tablename 'tabletype)
+        c (relation 'sys.syscolumns 'referenceid 'columnname 'columndatatype)
+        s (relation 'sys.sysconstraints)]
+    (join t c (join-condition = 'tableid 'referenceid))))
+
