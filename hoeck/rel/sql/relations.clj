@@ -272,7 +272,6 @@
 	      ks (first xrel)))
     i))
 
-
 (use 'clojure.contrib.pprint)
 (pprint (unique-index (seq hoeck.rel.testdata/people) [:id]))
 
@@ -287,4 +286,11 @@
   (conj R (merge (R tuple) (reduce dissoc tuple (.ikeys R)))))
 
 (rpprint (mutate ii {:id 1 :name 'mathias-1}))
+
+;; pros: + no equals quirks, not depeding on set implementation
+;;       + agnostic of tuple implementation, may benefit from custom tuple type (faster pkey extraction)
+;;       + possible to log assocs and thus allow an efficient insert
+;; cons: - extracting unique-keys-maps up front (expensive?)      
+;;         -> (create set only if s.o. assocs new tuples)
+
 )
