@@ -82,9 +82,11 @@
     `(let [~@(mapcat list op-args_ op-args)
 	   ~@(mapcat list rels_ 
 		     (map (fn [r] `(-> ~r relation-or-lookup ensure-relation)) rels))]
-       (with-meta (~op ~@rels_ ~@op-args_)
-		  {:fields (~op ~@(map list (repeat `fields) rels_)
-				~@op-args_)}))))
+       ;;(with-meta (~op ~@rels_ ~@op-args_)
+       ;;                  {:fields (~op ~@(map list (repeat `fields) rels_)
+       ;;				~@op-args_)})
+       ;;; sql-relations need field information
+       (~op ~@rels_ ~@op-args_))))
 
 ;; (rel-operation op/select [#{{:id 1} {:id nil}}] (condition ~id))
 

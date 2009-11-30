@@ -8,48 +8,114 @@
         [hoeck.rel :only [fields]]
         clojure.contrib.pprint
         clojure.contrib.except)
+  (:require [hoeck.rel.sql.jdbc :as jdbc])
   (:import (clojure.lang IPersistentSet IFn ILookup)))
 
 
 ;; deftype & protokoll
 
-(deftype sql-relation [_sql _seqd _setd] [IPersistentSet IFn ILookup]
+;; relations without a primary key:
+(deftype sql-relation [sql setd] [IPersistentSet IFn ILookup]
   ;; ILookup
-  (.valAt [k] (.get (force _setd) k))
-  (.valAt [k nf] (if (contains? (force _setd)) (.get (force _setd) k) nf))
+  (.valAt [k] (.get (force setd) k))
+  (.valAt [k nf] (if (contains? (force setd)) (.get (force setd) k) nf))
   ;; IPersistentSet
-  (.contains [k] (.contains (force _setd) k))
-  (.disjoin [k] (.disjoin (force _setd) k))
-  (.get [k] (.get (force _setd) k))
+  (.contains [k] (.contains (force setd) k))
+  (.disjoin [k] (sql-relation sql (.disjoin (force setd) k) (meta this) {}))
+  (.get [k] (.get (force setd) k))
   ;; IPersistentCollection
-  (.count [] (count (force _seqd)))
-  (.cons [o] (cons (force _setd) o))
-  (.empty [] (sql-relation _sql {} {}))
-  (.equiv [o] (.equiv (force _setd) o))
+  (.count [] (count (force setd)))
+  (.cons [o] (sql-relation sql (cons (force setd) o) (meta this) {}))
+  (.empty [] (sql-relation sql {} {}))
+  (.equiv [o] (.equiv (force setd) o))
   ;; Seqable
-  (.seq [] (.seq (force _setd)))
+  (.seq [] (.seq (force setd)))
   ;; IFn
-  (.invoke [arg] (.invoke (force _setd) arg))
-  (.invoke [arg brg] (.invoke (force _setd) arg brg))
-  (.applyTo [args] (.applyTo (force _setd) args)))
+  (.invoke [arg] (.invoke (force setd) arg))
+  (.invoke [arg brg] (.invoke (force setd) arg brg))
+  (.applyTo [args] (.applyTo (force setd) args)))
 
-(defmethod relation ::sql-relation [R]
-  R) ;; identity
+;; relations with primary key:
+(deftype indexed-relation [sql-expr imap ikeys] [IPersistentSet IFn ILookup]
+  (.hashCode [] (.hashCode (set (keys (force imap)))))
+  (.equals [o] (cond (= ::indexed-relation (type o)) (= (force imap) (force (.imap o)))
+                     (set? o) (= (seq o) (keys (force imap)))
+                     :else false))
+  ;; ILookup
+  (.valAt [k] (.valAt this k nil))
+  (.valAt [k nf] (if (map? k)
+		   (.valAt (force imap) (select-keys k ikeys) nf)
+		   (.valAt (force imap) k nf)))
+  ;; IPersistentSet
+  (.contains [k] (boolean (find (force imap)
+                                (if (map? k)
+                                  (select-keys k ikeys)
+                                  k))))
+  (.disjoin [k] (indexed-relation. sql-expr (.dissoc (select-keys k ikeys)) ikeys
+                                   (meta this) {}))
+  (.get [k] (.valAt this k nil))
+  ;; IPersistentCollection
+  (.count [] (count (force imap)))
+  (.cons [o] (indexed-relation. sql-expr
+                                (if (map? o)
+				  (assoc (force imap) (select-keys o ikeys) o)
+				  (assoc (force imap) {} o))
+				ikeys
+                                (meta this)
+                                {}))
+  (.empty [] (indexed-relation. sql-expr {} ikeys))
+  (.equiv [o] (.equals this o))
+  ;; Seqable
+  (.seq [] (vals (force imap)))
+  ;; IFn
+  (.invoke [arg] (.valAt this arg))
+  (.invoke [arg brg] (.valAt this arg brg))
+  (.applyTo [args] (let [[k nf & r] args]
+                     (if r 
+                       (throw-arg "Wrong number of arguments to indexed-relation")
+                       (.valAt this k nf)))))
 
-(defmethod relation String [sql-expr & fields]
-  (let [sq (delay (sql-query sql-expr))
-	st (delay (set (force sq)))]
-    (sql-relation sql-expr sq st
-                  {:relation-tag :sql
-                   :fields (when-not (empty? fields) (set fields))} {})))
+(defmethod relation ::indexed-relation [R] R) ;; identity
+(defmethod relation ::sql-relation [R] R) ;; identity
+
+(defn unique-index
+  "Returns a map of index-tuple to tuple mappings. Throws an exception when
+  ks do not form a unique index on xrel."
+  [xrel ks]
+  (let [i (reduce #(assoc % (select-keys %2 ks) %2) {} xrel)]
+    (when (not= (count i) (count xrel))
+      (throwf "%s on relation #{%s ...} is not unique, cannot create unique-index"
+	      (print-str ks) (first xrel)))
+    i))
+
+(defmethod relation String [sql-expr fields & [pkey]]
+  (if (or pkey (not (empty pkey)))
+    (let [relation-map (delay (unique-index (sql-query sql-expr) pkey))]
+      ;; todo: implement metadata on fields using resultsetmetadata?
+      (indexed-relation sql-expr
+                        relation-map
+                        pkey
+                        {:fields fields
+                         :relation-tag :sql}
+                        {}))
+    (sql-relation sql-expr (delay (set (sql-query sql-expr)))
+                  {:fields fields
+                   :relation-tag :sql}
+                  {})))
 
 (defmethod relation clojure.lang.Symbol [table-name & fields]
-  (let [fields (map #(with-meta % {:table table-name}) fields)]
-    (apply relation (str "select " (if (empty? fields) 
-                                     "*"
-                                     (apply str (interpose "," (map sql-symbol fields))))
-                         " from " (sql-symbol table-name))
-           fields)))
+  ;; create a relation from a tablename and some fields
+  ;; add field metadata: :datatype, :primary-key and :table
+  (let [pkey-set (jdbc/primary-key-columns table-name)
+        fields (map #(with-meta % {:table table-name
+                                   :primary-key (-> % pkey-set boolean)
+                                   :datatype nil})
+                    fields)
+        expr (str "select " (if (empty? fields)
+                              "*"
+                              (apply str (interpose "," (map sql-symbol fields))))
+                  " from " (sql-symbol table-name))]
+    (relation expr fields (map keyword pkey-set))))
 
 
 ;; retrievable
@@ -102,22 +168,27 @@
   sql from-clause."
   ([& rels]
      (->> rels
-	  (map #(str "(" (._sql %) ") " (sql-symbol (gensym "table"))))
+	  (map #(str "(" (.sql_expr %) ") " (sql-symbol (gensym "table"))))
 	  (interpose ", ")
 	  (apply str " from "))))
+
+(defn pkey [fields] (map keyword (filter #(-> % meta :primary-key) fields)))
 
 (defmethod project :sql
   [R conditions]
   ;; identity-condition: "%s"
-  (let [expr (str "select " (apply str (interpose "," (map project-condition-sql conditions)))
-		  (from-relation-expr R))]    
-    (relation expr)))
+  (let [expr (str "select "
+                  (apply str (interpose "," (map project-condition-sql conditions)))
+		  (from-relation-expr R))
+        fs (project (fields R) conditions)]
+    (relation expr fs (pkey fs))))
 
 (defmethod select :sql
   [R condition]
   (let [expr (str "select *" (from-relation-expr R)
-                  " where " (condition-sql-expr condition))]
-    (relation expr)))
+                  " where " (condition-sql-expr condition))
+        fs (fields R)]
+    (relation expr fs (pkey fs))))
 
 (defmethod rename :sql
   [R name-newname-map]
@@ -126,19 +197,22 @@
 		       (map #(str % " as " (sql-symbol (name-newname-map % %))))
 		       (interpose ",")
 		       (apply str))
-		  (from-relation-expr R))]
-    (relation expr)))
+		  (from-relation-expr R))
+        fs (rename (fields R) name-newname-map)]
+    (relation expr fs (pkey fs))))
 
 (defmethod xproduct :sql
   [R S]
-  (let [expr (str "select *" (from-relation-expr R S))]
-    (relation expr)))
+  (let [expr (str "select *" (from-relation-expr R S))
+        fs (xproduct (fields R) (fields S))]
+    (relation expr fs (pkey fs))))
 
 (defmethod join :sql
   [R S join-condition]
   (let [expr (str "select *" (from-relation-expr R S) " "
-                  (join-condition-sql join-condition))]
-    (relation expr)))
+                  (join-condition-sql join-condition))
+        fs (join (fields R) (fields S) join-condition)]
+    (relation expr fs (pkey fs))))
 
 (defmethod fjoin :sql
   [R f] ;; use derby java-procedures to implement functional join!!!
@@ -149,8 +223,9 @@
   [operator R S]
   (let [expr (str "select *" (from-relation-expr R)
 		  (str " " operator " ")
-		  "select *" (from-relation-expr S))]
-    (relation expr)))
+		  "select *" (from-relation-expr S))
+        fs (union (fields R) (fields S))]
+    (relation expr fs (pkey fs))))
 
 (defmethod union :sql [R S] (sql-set-operation "union" R S))
 (defmethod difference :sql [R S] (sql-set-operation "except"))
@@ -168,129 +243,22 @@
                                  (interpose ", ")
                                  print-str)
                   (from-relation-expr R)
-                  " group by " (->> groups (interpose ", ") print-str))]
-    (relation expr)))
+                  " group by " (->> groups (interpose ", ") print-str))
+        fs (aggregate (fields R))]
+    (relation expr fs (pkey fs))))
 
 
+(comment;; updateable relations
 
+  (def rr (relation 'person 'id 'status 'name))
 
+  (hoeck.rel/rpprint rr)
+  (hoeck.rel/rpprint (conj (conj rr {:name 'foobar})
+                           {:name 'bazbak}))
 
+  (map meta (:fields (meta rr)))
+  (fields rr)
+  (pkey (fields rr))
+  
 
-(comment ;; updateable relations
-
-
-(import '(clojure.lang IPersistentMap IPersistentSet IFn ILookup))
-;; option 1: use plain hashsets and define a tuple type with custom hashcode and equals:
-
-(deftype tuple [m idkeys] [IPersistentMap IFn ILookup]
-  (.hashCode [] (.hashCode (select-keys m idkeys)))
-  (.equals [o] (if (= (type o) ::tuple)
-		 (and (= idkeys (.idkeys #^::tuple o))
-		      (reduce #(and %1 (= (m %2) (o %2))) true idkeys))
-		 (= (select-keys m idkeys) o)))
-  ;; ILookup
-  (.valAt [k] (.valAt m k))
-  (.valAt [k nf] (.valAt m k nf))
-  ;; IPersistentMap
-  (.containsKey [k] (.containsKey m k))
-  (.entryAt [k] (.entryAt m k))
-  (.assoc [k v] (tuple. (.assoc m k v) idkeys))
-  (.without [k] (tuple. (.without m k) (disj idkeys k)))
-  ;; IPersistentCollection
-  (.count [] (count m))
-  (.cons [o] (cons m o))
-  (.empty [] (tuple. (empty m) idkeys))
-  (.equiv [o] (.equiv m o))
-  ;; Seqable
-  (.seq [] (.seq m))
-  ;; IFn
-  (.invoke [arg] (.invoke m arg))
-  (.invoke [arg brg] (.invoke m arg brg))
-  (.applyTo [args] (.applyTo m args)))
-
-(def td (set (list
-	      (tuple {:a 1 :b 'A} #{:a})
-	      (tuple {:a 2 :b 'B} #{:a})
-	      (tuple {:a 3 :b 'C} #{:a})
-	      (tuple {:a 4 :b 'D} #{:a}))))
-
-(defn mutate [R tup]
-  (let [pkey (.idkeys (first R))
-	tup (tuple tup pkey)]
-    (-> R 
-	(disj tup)
-	(conj tup))))
-
-(rpprint (mutate td {:a 3 :b 'XXX}))
-
-;; pros: + union/difference/intersection for free
-;;       + little overhead on set, not complicated even for multiple primary keys
-;;       + special (and faster?) cases for single identity-key tuples possible
-;; cons: - ugly equals (equals between hashmap and tuple is always broken, what about equals between two different tuples)
-;;       - expensive hashCode?
-
-
-;; option 2: use a modified set with plain hashmaps as tuples
-;; behind the set-scenes, use a clojure hashmap from unique-keys to tuples (-> clojure.set/index)
-
-(deftype indexed-relation [m ikeys] [IPersistentSet IFn ILookup]
-  ;; ILookup
-  (.valAt [k] (.valAt this k nil))
-  (.valAt [k nf] (if (map? k)
-		   (.valAt m (select-keys k ikeys) nf)
-		   (.valAt m k nf)))
-  ;; IPersistentSet
-  (.contains [k] (boolean (find m (if (map? k)
-				    (select-keys k ikeys)
-				    k))))
-  (.disjoin [k] (indexed-relation. (.dissoc (select-keys k ikeys)) ikeys))
-  (.get [k] (.valAt this k nil))
-  ;; IPersistentCollection
-  (.count [] (count m))
-  (.cons [o] (indexed-relation. (if (map? o)
-				  (assoc m (select-keys o ikeys) o)
-				  (assoc m {} o))
-				ikeys))
-  (.empty [] (indexed-relation. {} ikeys))
-  (.equiv [o] (cond (= ::indexed-relation (type o)) (and (= ikeys (.ikeys o)) (= m (.m o)))
-		    (set? o) (= o this)
-		    :else false))
-  ;; Seqable
-  (.seq [] (vals m))
-  ;; IFn
-  (.invoke [arg] (.valAt this arg))
-  (.invoke [arg brg] (.valAt this arg brg))
-  (.applyTo [args] (.valAt this (first args) (second args))))
-
-(defn unique-index
-  "Returns a map of index-tuple to tuple mappings. Throws an exception when
-  ks do not form a unique index on xrel."
-  [xrel ks]
-  (let [i (reduce #(assoc % (select-keys %2 ks) %2) {} xrel)]
-    (when (not= (count i) (count xrel))
-      (throwf "%s on relation %s is not unique, cannot create unique-index"
-	      ks (first xrel)))
-    i))
-
-(use 'clojure.contrib.pprint)
-(pprint (unique-index (seq hoeck.rel.testdata/people) [:id]))
-
-(defn make-indexed-relation [s index-ks] 
-  (indexed-relation (unique-index s index-ks) index-ks))
-
-(def ii (make-indexed-relation hoeck.rel.testdata/people [:id]))
-(rpprint ii)
-(rpprint (conj ii {:id 1 :name 'mathias-1})) ;; simple example works
-
-(defn mutate [R tuple]
-  (conj R (merge (R tuple) (reduce dissoc tuple (.ikeys R)))))
-
-(rpprint (mutate ii {:id 1 :name 'mathias-1}))
-
-;; pros: + no equals quirks, not depeding on set implementation
-;;       + agnostic of tuple implementation, may benefit from custom tuple type (faster pkey extraction)
-;;       + possible to log assocs and thus allow an efficient insert
-;; cons: - extracting unique-keys-maps up front (expensive?)      
-;;         -> (create set only if s.o. assocs new tuples)
-
-)
+  )

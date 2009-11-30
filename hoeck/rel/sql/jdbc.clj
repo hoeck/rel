@@ -5,15 +5,17 @@
   (:require [hoeck.rel.operators :as rel-op])
   (:import (java.sql ResultSet)))
 
-
-
 (defmethod rel-op/relation ResultSet [rs] ;; create a clojure relation from a ResultSet
-  (let [rsmeta (. rs (getMetaData))
-        idxs (range 1 (inc (. rsmeta (getColumnCount))))
-        keys (map (comp keyword #(.toLowerCase #^String %))
-                  (map (fn [i] (. rsmeta (getColumnLabel i))) idxs))
+  (let [rsmeta (.getMetaData rs)
+        idxs (range 1 (inc (.getColumnCount rsmeta)))
+        fields (map (fn [idx]
+                      (-> rsmeta
+                          (.getColumnLabel idx)
+                          .toLowerCase
+                          symbol))
+                    idxs)
         R (set (resultset-seq rs))]
-    (with-meta R {:fields (set (map #(-> % name symbol) keys))})))
+    (with-meta R {:fields fields})))
 
 (defn get-metadata []
   (.getMetaData (:connection *db*)))

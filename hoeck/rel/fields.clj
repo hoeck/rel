@@ -24,12 +24,13 @@
   (let [cm (map #(condition-meta %) conditions)
 	ineligible-conditions (remove #(or (#{:identity :user} %)
                                            (nil? %)) 
-                                      (map :type cm))]
+                                      (map :type cm))
+        p-fields (set (map #(-> % :name name symbol) cm))]
     (check-unknown-fields R (mapcat :fields cm))
     (when-not (empty? ineligible-conditions)
       (throwf "Only :identity and :user conditions allowed in project, not: %s"
 	      (print-str ineligible-conditions)))
-    (set (map :name cm))))
+    (set (filter p-fields R))))
 
 (comment (project (with-meta #{:a :b :c} {:relation-tag :field})
                   (list (identity-condition :a)
@@ -41,10 +42,13 @@
 
 (defmethod rename :field [R oldname-newname-map]
   (check-unknown-fields R (keys oldname-newname-map))
-  (set (map #(oldname-newname-map % %) R)))
+  (set (map #(if-let [nf (oldname-newname-map %)]
+               (with-meta nf (meta %))
+               %) 
+            R)))
 
 (comment (rename (with-meta #{:a :b :c} {:relation-tag :field})
-		 {:a :x :c :y :u :v}))
+		 {:a :x :c :y :c :v}))
 
 (defmethod xproduct :field [R S]
   (union R S))
