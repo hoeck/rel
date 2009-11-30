@@ -35,6 +35,7 @@
   (.invoke [arg brg] (.invoke (force setd) arg brg))
   (.applyTo [args] (.applyTo (force setd) args)))
 
+
 ;; relations with primary key:
 (deftype indexed-relation [sql-expr imap ikeys] [IPersistentSet IFn ILookup]
   (.hashCode [] (.hashCode (set (keys (force imap)))))
@@ -51,14 +52,30 @@
                                 (if (map? k)
                                   (select-keys k ikeys)
                                   k))))
-  (.disjoin [k] (indexed-relation. sql-expr (.dissoc (select-keys k ikeys)) ikeys
-                                   (meta this) {}))
+  (.disjoin [k] (if (map? k)
+		  (let [pk (select-keys k ikeys)]
+		    (indexed-relation. sql-expr
+				       (dissoc (force imap) pk)
+				       ikeys
+				       ;; record deleted tuples
+				       (assoc :delete (meta this) (conj (get (meta this) :delete []) k))
+				       {})
+		    (indexed-relation. sql-expr
+				       (dissoc (force imap) pk)
+				       ikeys
+				       (meta this)
+				       {}))))
   (.get [k] (.valAt this k nil))
   ;; IPersistentCollection
   (.count [] (count (force imap)))
   (.cons [o] (indexed-relation. sql-expr
                                 (if (map? o)
-				  (assoc (force imap) (select-keys o ikeys) o)
+				  ;; track the change in the tuples metadata
+				  (let [pk (select-keys o ikeys)
+					tp (get (force imap) pk)]
+				    (assoc (force imap) 
+				      pk (with-meta (merge tp o)
+						    {:update (conj (get (meta tp) :update []) o)})))
 				  (assoc (force imap) {} o))
 				ikeys
                                 (meta this)
@@ -107,9 +124,11 @@
   ;; create a relation from a tablename and some fields
   ;; add field metadata: :datatype, :primary-key and :table
   (let [pkey-set (jdbc/primary-key-columns table-name)
-        fields (map #(with-meta % {:table table-name
-                                   :primary-key (-> % pkey-set boolean)
-                                   :datatype nil})
+        fields (map #(with-meta % (merge {:table table-name
+					  :primary-key (-> % pkey-set boolean)
+					  :datatype nil}
+					 ;; fields may overwrite generated metadata
+					 (meta %)))
                     fields)
         expr (str "select " (if (empty? fields)
                               "*"
@@ -259,6 +278,15 @@
   (map meta (:fields (meta rr)))
   (fields rr)
   (pkey (fields rr))
-  
 
-  )
+
+
+  (def rr (relation 'personen 'pers_id 'status_id 'name1 'vorname1))
+  (hoeck.rel/rpprint rr)
+  (pkey (fields rr))
+
+  (def rr1 (conj rr {:pers_id 419 :vorname1 "balke"}))
+  (def rr2 (conj rr1 {:pers_id 419 :name1 "Herr"}))
+  (map meta rr2)
+  
+)
