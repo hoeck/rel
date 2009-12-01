@@ -162,7 +162,7 @@
   [R & exprs]
   `(project* ~R
              ~@(map #(cond (or (keyword? %) (symbol? %)) `(identity-condition '~%)
-			   (vector? %) `(condition ~(first %) '~(second %))
+			   (vector? %) `(condition ~(first %) ~(second %))
 			   (= '* %) `*
 			   :else `(condition ~%))
                     exprs)))

@@ -63,17 +63,27 @@
 	 
 ;; updating a relation using its resultset and another relation
 ;; versatile but limited for big Rs
-(defn update-relation 
-  "Given an sql-relation R, update its rows according to the new relation S
-  by stepping through the resultset of R and updating fields with values from
-  S where primary keys match.
+(comment ;; <--- continue HERE
+  (defn update-relation 
+    "Given an sql-relation R
   Useful for small relations R, cause the whole R must be traversed in order to
   change values."
-  [R S]
-  ;; todo
-  
-  
-  )
+    ([R] (let [conn (:connection *db*)]
+           (when (nil? conn)
+             (throwf "connection is nil, use set-connection to establish one"))
+           (update-relation R conn)))
+    [R conn]
+    (let [expr (.sql R)]    
+      (with-open [s (.prepareStatement conn expr)]
+        (let [rs (.executeQuery s)
+              rsmeta (.getMetaData rs)
+              idxs (range 1 (inc (. rsmeta (getColumnCount))))
+            
+              ]
+          (while (.next rs) 
+            (when ())
+            )
+          )))))
 
 
 ;; todo: tracking changes to relations made with (conj R {:new 'tuple})

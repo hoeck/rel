@@ -26,7 +26,7 @@
      (.getMetaData connection)))
 
 
-;; metadata relations (base relvars)
+;; metadata relations
 
 (defn table-types []
   (-> (get-metadata) .getTableTypes relation))
@@ -68,6 +68,14 @@
 
 
 ;; tools
+
+(defn table-fields [table-name]
+  (let [c (columns table-name)] ;; <--- continue HERE!
+    (project c
+             [(-> ~column_name .toLowerCase symbol) :field-name]
+             [~ordinal_position :position]
+             [(= ~is_autoincrement "YES") :autoincrement]
+             )))
 
 (defn primary-key-columns
   "return a set of columnnames which form the primary key of the given table-name."
