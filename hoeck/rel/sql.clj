@@ -72,7 +72,10 @@
 (defn set-connection
   "set *db* :connection to a permanent connection."
   [connection-param-map]
-  (alter-var-root #'*db* assoc :connection (get-connection connection-param-map)))
+  (alter-var-root #'*db* assoc
+		  :connection (get-connection connection-param-map)
+		  :level 0
+		  :rollback (atom false)))
 
 (defn sql-query
   "Executes an sql-expression and returns a resultset-seq"
@@ -97,7 +100,7 @@
 		 :subname "localhost:2638/temp" ;; ^= where
 		 ;; symbols: connection properties
 		 'user "dbo"
-		 'password "-"
+		 'password "-" 
 		 'create false})
 (set-connection {:classname "org.apache.derby.jdbc.EmbeddedDriver"
 		 :subprotocol "derby"

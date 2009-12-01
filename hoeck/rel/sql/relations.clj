@@ -8,7 +8,8 @@
         [hoeck.rel :only [fields]]
         clojure.contrib.pprint
         clojure.contrib.except)
-  (:require [hoeck.rel.sql.jdbc :as jdbc])
+  (:require [hoeck.rel.sql.jdbc :as jdbc]
+	    [clojure.set :as set])
   (:import (clojure.lang IPersistentSet IFn ILookup)))
 
 
@@ -68,18 +69,19 @@
   (.get [k] (.valAt this k nil))
   ;; IPersistentCollection
   (.count [] (count (force imap)))
-  (.cons [o] (indexed-relation. sql-expr
-                                (if (map? o)
-				  ;; track the change in the tuples metadata
-				  (let [pk (select-keys o ikeys)
-					tp (get (force imap) pk)]
-				    (assoc (force imap) 
-				      pk (with-meta (merge tp o)
-						    {:update (conj (get (meta tp) :update []) o)})))
-				  (assoc (force imap) {} o))
-				ikeys
-                                (meta this)
-                                {}))
+  (.cons [o] 
+	 (indexed-relation. sql-expr
+			    (if (map? o) ;; allow adding of non-tuple types?
+			      ;; track the change in the tuples metadata
+			      (let [pk (select-keys o ikeys)
+				    tp (get (force imap) pk)]
+				(assoc (force imap) 
+				  pk (with-meta (merge tp o)
+						{:update (conj (get (meta tp) :update []) o)})))
+			      (assoc (force imap) {} o))
+			    ikeys
+			    (assoc (meta this) :updated true)
+			    {}))
   (.empty [] (indexed-relation. sql-expr {} ikeys))
   (.equiv [o] (.equals this o))
   ;; Seqable
@@ -123,13 +125,16 @@
 (defmethod relation clojure.lang.Symbol [table-name & fields]
   ;; create a relation from a tablename and some fields
   ;; add field metadata: :datatype, :primary-key and :table
+  ;; when fields are nil, use jdbc to determine fields all table-fields
+  ;; if one field is * or '*, then merge the given fields with fields from jdbc-metadata
   (let [pkey-set (jdbc/primary-key-columns table-name)
-        fields (map #(with-meta % (merge {:table table-name
-					  :primary-key (-> % pkey-set boolean)
-					  :datatype nil}
-					 ;; fields may overwrite generated metadata
-					 (meta %)))
-                    fields)
+	star? (or (empty? fields) (some #{* '*} fields))
+	assigned-fields (set fields)
+	jdbc-fields (map #(vary-meta % merge (-> % assigned-fields meta))
+			 (jdbc/table-fields table-name))
+	fields (if star?
+		 jdbc-fields
+		 (filter assigned-fields jdbc-fields))
         expr (str "select " (if (empty? fields)
                               "*"
                               (apply str (interpose "," (map sql-symbol fields))))
@@ -281,9 +286,9 @@
 
 
 
-  (def rr (relation 'personen 'pers_id 'status_id 'name1 'vorname1))
+  (def rr (relation 'personen (with-meta 'pers_id {:autoincrement :true}) 'status_id 'name1 'vorname1))
   (hoeck.rel/rpprint rr)
-  (pkey (fields rr))
+  (map meta (fields rr))
 
   (def rr1 (conj rr {:pers_id 419 :vorname1 "balke"}))
   (def rr2 (conj rr1 {:pers_id 419 :name1 "Herr"}))

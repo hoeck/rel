@@ -69,19 +69,27 @@
 
 ;; tools
 
-(defn table-fields [table-name]
-  (let [c (columns table-name)] ;; <--- continue HERE!
-    (project c
-             [(-> ~column_name .toLowerCase symbol) :field-name]
-             [~ordinal_position :position]
-             [(= ~is_autoincrement "YES") :autoincrement]
-             )))
+(defn table-fields
+  "given a table-name, return all fields of this table in a set including field-metadata:
+  :position, :autoincrement and :primary-key."
+  [table-name]
+  (map :field
+       (project (join (columns table-name)
+		      (project (primary-keys 'personen) [~column_name :name] [true :primary-key])
+		      (hoeck.rel.conditions/join-condition = :column_name :name))
+		[(with-meta (-> ~column_name .toLowerCase symbol)
+			    {:table table-name
+			     :position (int ~ordinal_position)
+			     :autoincrement (= ~is_autoincrement "YES")
+			     :primary-key ~primary-key})
+		 :field])))
 
 (defn primary-key-columns
   "return a set of columnnames which form the primary key of the given table-name."
   [table-name]
   (set (map #(-> % :column_name .toLowerCase symbol)
-            (primary-keys (find-table table-name)))))
+	    (primary-keys (find-table table-name)))))
+
 
 (comment ;; examples
   (rpprint (primary-keys 'person))

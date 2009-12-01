@@ -1,10 +1,14 @@
 
 (ns hoeck.rel.sql.update
-  (:use hoeck.rel.sql
+  (:use hoeck.rel
+	hoeck.rel.sql
         hoeck.rel.conditions ;; for update-where        
-        clojure.contrib.pprint)
+        clojure.contrib.pprint
+	clojure.contrib.except)
   (:require [hoeck.rel.sql.jdbc :as jdbc]
-	    [clojure.contrib.sql :as csql]))
+	    [clojure.contrib.sql :as csql]
+	    [clojure.contrib.sql.internal :as csqli])
+  (:import (java.sql ResultSet)))
 
 
 ;; sql data manipulation
@@ -60,42 +64,58 @@
                          {:id 1000 :status -1}
                          {:id 1001 :name "erhardt" :status 0}))
 )
-	 
+
+
 ;; updating a relation using its resultset and another relation
 ;; versatile but limited for big Rs
-(comment ;; <--- continue HERE
-  (defn update-relation 
-    "Given an sql-relation R
-  Useful for small relations R, cause the whole R must be traversed in order to
+
+(defn- update-resultset
+  ([R func] (let [conn (:connection csqli/*db*)]
+	 (when (nil? conn)
+	   (throwf "connection is nil, use set-connection to establish one"))
+	 (csql/transaction (update-resultset R conn func))))
+  ([R conn func]
+     (let [expr (.sql_expr R)]
+       (with-open [s (.prepareStatement conn
+					expr
+					ResultSet/TYPE_FORWARD_ONLY
+					ResultSet/CONCUR_UPDATABLE)]
+	 (let [rs (.executeQuery s)
+	       rsmeta (.getMetaData rs)
+	       idxs (range 1 (inc (. rsmeta (getColumnCount))))
+	       name-idx-map (zipmap (map #(-> (.getColumnName rsmeta %) .toLowerCase keyword) idxs)
+				    idxs)
+	       pk (set (map #(-> % name keyword) (filter #(:primary-key (meta %)) (fields R))))
+	       pk-idxs (map name-idx-map pk)
+	       get-pk (fn [] (zipmap pk (map #(.getObject rs %) pk-idxs)))]
+	   (func rs ;; the resultset, step with (while (.next rs) ...)
+		 name-idx-map ;; map of :column-name to rs column-index number
+		 get-pk ;; return a primary-key map from a resultset-row
+		 pk ;; a set of :primary-key-fields
+		 ))))))
+
+(defn update-relation 
+  "Given an sql-relation R, apply all changes made to R (changes are updates to non-primary
+  key fields, stored as metadata in the relations tuples.
+  Useful for small relations R, cause the whole resultset must be traversed in order to
   change values."
-    ([R] (let [conn (:connection *db*)]
-           (when (nil? conn)
-             (throwf "connection is nil, use set-connection to establish one"))
-           (update-relation R conn)))
-    [R conn]
-    (let [expr (.sql R)]    
-      (with-open [s (.prepareStatement conn expr)]
-        (let [rs (.executeQuery s)
-              rsmeta (.getMetaData rs)
-              idxs (range 1 (inc (. rsmeta (getColumnCount))))
-            
-              ]
-          (while (.next rs) 
-            (when ())
-            )
-          )))))
+  ([R]
+     (update-resultset 
+      R
+      (fn [rs name-idx-map get-pk pk]
+	(while (.next rs)
+	  (let [updates (-> (get-pk) R meta :update)]
+	    (doseq [u updates]
+	      (doseq [[name value] u]
+		(when-not (pk name) ;; don't update primary keys
+		  (.updateObject rs (name-idx-map name) value)))
+	      (.updateRow rs))))))))
 
-
-;; todo: tracking changes to relations made with (conj R {:new 'tuple})
-;;       in the relations metadata, then extract and upate
-
-
-;; updating a relation by using delete and insert
-	 
-
-(defn delete-insert [table changeset]
+(defn insert
+  "Insert all new tuples of R into its originating table(s)."
+  [R]
+  (let [R ()])
   
-
   )
 
 
