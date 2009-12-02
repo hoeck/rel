@@ -276,16 +276,16 @@
   (if (empty? R)
     #{}
     (let [fields (map keyword (fields R))
-	  R (if *print-length* (take *print-length* R) R)
+	  restricted-R (if *print-length* (take *print-length* R) R)
 	  ;; be shure to get alls values in the same order
 	  get-vals (fn [m] (map #(% m) fields))
-	  sizes (get-vals (field-sizes R))
-	  values (get-vals (first R))
+	  sizes (get-vals (field-sizes restricted-R))
+	  values (get-vals (first restricted-R))
 	  fmt-str (format-string fields sizes values)
-	  s (cl-format nil fmt-str (map get-vals R))]
+	  s (cl-format nil fmt-str (map get-vals restricted-R))]
       (str "#{" 
 	   (.substring s 2 (- (count s) 1))
-	   (if *print-length*
+	   (if (and *print-length* (< *print-length* (count R)))
 	     (str \newline "  ...")
 	     "")
 	   "}"))))
