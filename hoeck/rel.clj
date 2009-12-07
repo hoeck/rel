@@ -189,10 +189,16 @@
 		 [R S]
 		 join-condition))
 
+(defmacro join= [R S a b]
+  `(join ~R ~S (join-condition = ~a ~b)))
+
 (defn outer-join [R S join-condition]
   (rel-operation op/outer-join 
 		 [R S]
                  join-condition))
+
+(defmacro join= [R S a b]
+  `(outer-join ~R ~S (join-condition = ~a ~b)))
 
 (defn fjoin [R f]
   (rel-operation op/fjoin [R] f))
