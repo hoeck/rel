@@ -85,7 +85,7 @@
 	       tp (if new?
 		    (merge (zipmap ikeys newkeys) o) ;; new tuple
 		    (get (force imap) pk))]
-	   (println :new  new? :tp tp :pk pk)
+	   ;;(println :new  new? :tp tp :pk pk)
 	   (if new?
 	     ;; insert new `row' into relation
 	     (indexed-relation. sql-expr
@@ -168,7 +168,7 @@
                               "*"
                               (apply str (interpose "," (map sql-symbol fields))))
                   " from " (sql-symbol table-name))]
-    (relation expr fields (map keyword pkey-set))))
+    (relation expr (set fields) (map keyword pkey-set))))
 
 
 ;; retrievable
@@ -178,7 +178,11 @@
 
 (extend ::sql-relation
 	Retrievable
-        {:retrieve (fn [r] (relation (:_sql r)))})
+        {:retrieve (fn [r] (relation (.sql_expr r)))})
+
+(extend ::indexed-relation
+	Retrievable
+        {:retrieve (fn [r] (relation (.sql_expr r) (fields r) (.ikeys r)))})
 
 (defn project-condition-sql
   "generate an sql expression for project column-clauses."
@@ -200,7 +204,7 @@
       (throwf "cannot use non :join condition in sql-join"))
     (when-not (:join-symbol cm)
       (throwf "unknown join condition: %s" (:join-function cm)))
-    (format "where %s %s %s"
+    (format "%s %s %s"
             (sql-symbol (name (:field-a cm)))
             (:join-symbol cm)
             (sql-symbol (name (:field-b cm))))))
@@ -262,15 +266,24 @@
 
 (defmethod join :sql
   [R S join-condition]
-  (let [expr (str "select *" (from-relation-expr R S) " "
+  (let [expr (str "select *" (from-relation-expr R S) " where "
                   (join-condition-sql join-condition))
         fs (join (fields R) (fields S) join-condition)]
     (relation expr fs (pkey fs))))
 
 (defmethod fjoin :sql
   [R f] ;; use derby java-procedures to implement functional join!!!
-  ;; or directly put data into derby:
+  ;; or put data directly into derby:
   (fjoin (set R) f))
+
+(defmethod outer-join :sql
+  [R S join-condition]
+  (let [expr (cl-format nil "select * from (~a) ~a left outer join (~a) ~a on ~a"
+                        (.sql_expr R) (sql-symbol (gensym 'table))
+                        (.sql_expr S) (sql-symbol (gensym 'table))
+                        (join-condition-sql join-condition))
+        fs (join (fields R) (fields S) join-condition)]
+    (relation expr fs (pkey fs))))
 
 (defn sql-set-operation
   [operator R S]
