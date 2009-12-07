@@ -129,9 +129,10 @@
      (doseq [i (-> R meta :inserts)]
        (doseq [[name value] (get R i)]
 	 (let [idx (name-idx-map name)]
+           (when (nil? idx) (throwf "unknown field in tuple: `%s' - not found in resultset" name))
 	   (when (and (not (.isAutoIncrement rsmeta idx)) (.isWritable rsmeta idx))
 	     ;; ignore autoincremented pk-values and non-writable columns
-	     (.updateObject rs idx val))))
+	     (.updateObject rs idx value))))
        ;; javadoc: All of the columns in a result set must be given a value each time this method is called before calling insertRow
        (.insertRow rs)))))
 
@@ -148,15 +149,17 @@
        (let [fs (seq columns)
 	     expr (cl-format nil "insert into ~s (~{~a~^, ~}) values (~{~a~^, ~})"
 			     table-name (map sql-symbol fs) (take (count fs) (repeat "?")))
+             _ (println expr)
 	     prep (.prepareStatement conn expr)] ;;Statement/RETURN_GENERATED_KEYS
-	 (doseq [t tuples]
-	   (doseq [col fs
-		   idx (range 1 (inc (count fs)))]
-	     (.setObject prep idx (get t col)))
-	   (.addBatch prep))
-	 (seq (.executeBatch prep))
+         (csql/transaction
+          (doseq [t tuples]
+            (dorun (map (fn [col idx] (.setObject prep idx (get t col)))
+                        fs
+                        (range 1 (inc (count fs)))))
+            (.addBatch prep))
+          (seq (.executeBatch prep)))
 	 ;; (try (when (.supportsGetGeneratedKeys (.getMetaData conn))
-	 ;;      (relation (.getGeneratedKeys prep)))
+         ;;      (relation (.getGeneratedKeys prep)))
 	 ;;   (catch Exception e nil))
 	 ))))
 
