@@ -274,7 +274,7 @@
   Obey to *print-length*."
   [R]
   (if (empty? R)
-    #{}
+    "#{}"
     (let [fields (map keyword (fields R))
 	  restricted-R (if *print-length* (take *print-length* R) R)
 	  ;; be shure to get alls values in the same order
