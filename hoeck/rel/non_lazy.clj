@@ -12,7 +12,7 @@
 (use 'hoeck.rel.testdata)
 
 (defmethod relation clojure.lang.IPersistentVector
-  ;; (relation [:name :path] [:c :d :e :f]) -> #{{:name :c :path :f} ..}
+  ;; (relation [:name :path] [:c :d :e :f]) -> #{{:name :c :path :d} ..}
   ;; (relation [:name :path] [1 2 3] [4 5 6]) -> #{{:name 1 :path 4} {:name 2 :path 5} {:name 3 :path 6}}
   ;; (relation [[:name :path]] [[:a :b] [:x :y]]) -> #{{:name :a :path :b} ..}
   [rdef & data]
@@ -72,11 +72,14 @@
 
 (defmethod join :clojure
   ([R S join-condition]
-     (let [{:keys [field-a field-b join-function join-symbol type]} (join-condition)]
-       (fjoin R (fn [r-tuple]
-                  (map #(when (join-condition r-tuple %)
-                          (merge r-tuple %))
-                       S))))))
+     (if (empty? S)
+       R
+       (let [{:keys [field-a field-b join-function join-symbol type]} (join-condition)]
+         (set (remove nil? (mapcat (fn [r-tuple]
+                                     (map #(when (join-condition r-tuple %)
+                                             (merge r-tuple %))
+                                          S))
+                                   R)))))))
 
 (comment (join people address (join-condition = :adress-id :id)))
 
