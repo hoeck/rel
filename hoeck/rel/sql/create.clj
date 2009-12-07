@@ -47,6 +47,7 @@
 
 (declare column-def)
 (defn varchar [len] (cl-format nil "varchar(~a)" len))
+(defn decimal [prec & [scale]] (cl-format nil "decimal(~a,~a)" prec (or scale 5)))
 (defn default [default-value] (cl-format nil "default ~a" (column-def default-value)))
 (defn primary-key [& columns] (cl-format nil "primary key (~{~a~^, ~})" (map name columns)))
 
@@ -55,7 +56,7 @@
   part of a sql create-table statement."
   ([s]
      (cond (fn? s) (column-def (s)) ;; call
-           (var? s) (column-def (s)) ;; call (assume a used-defined function)
+           (var? s) (column-def (s)) ;; call (assume a user-defined function)
            (seq? s) (let [[f & r] s ;; call or interpret
                           f-resolved (and (symbol? f) 
                                           (not (contains? sql-keyword-map f));; don't call eg. clojure.core/int
@@ -64,13 +65,15 @@
                             f-resolved (column-def (apply f-resolved r));; call only non-sql-keyword vars
                             :else (cl-format nil "~{~a~^ ~}" (apply column-def s))))
            ;; shortcut-symbol or resolve and call without args
-           (symbol? s) (let [number-symbol-rxs [[#"^varchar-([0-9]+)$" "varchar(%s)"]]
+           (symbol? s) (let [number-symbol-rxs [[#"^varchar-([0-9]+)$" "varchar(%s)"]
+                                                [#"^decimal-([0-9]+)$" "decimal(%s)"]
+                                                [#"^decimal-([0-9]+)-([0-9]+)$" "decimal(%s,%s)"]]
                              sql-sym (sql-keyword-map s)]
                          (or sql-sym
                              (->> number-symbol-rxs
                                   (map (fn [[r fmt]]
-                                         (if-let [[_ n] (re-matches r (str s))]
-                                           (format fmt n))))
+                                         (if-let [[_ & n] (re-matches r (str s))]
+                                           (apply format fmt n))))
                                   (remove nil?)
                                   first)
                              (when-let [rs (resolve s)] (column-def rs))
@@ -104,7 +107,7 @@
   ([name len] (list name (list 'varchar len) 'not-null '(default empty-string))))
 
 (defn id [name]
-  (list name 'int 'not-null 'unique '(generated 1000)))
+  (list name 'int 'not-null '(generated 1000)))
 
 (defn lookup-id [name]
   (list name 'int 'not-null 'generated))
