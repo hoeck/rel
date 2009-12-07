@@ -74,8 +74,8 @@
   :position, :autoincrement and :primary-key."
   [table-name]
   (map :field
-       (project (join (columns table-name)
-		      (project (primary-keys 'personen) [~column_name :name] [true :primary-key])
+       (project (outer-join (columns table-name)
+		      (project (primary-keys table-name) [~column_name :name] [true :primary-key])
 		      (hoeck.rel.conditions/join-condition = :column_name :name))
 		[(with-meta (-> ~column_name .toLowerCase symbol)
 			    {:table table-name
