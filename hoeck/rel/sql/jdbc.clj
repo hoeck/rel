@@ -1,6 +1,7 @@
 
 (ns hoeck.rel.sql.jdbc
-  (:use hoeck.rel        
+  (:use hoeck.rel
+        clojure.contrib.except
         [clojure.contrib.sql.internal :only [*db*]])
   (:require [hoeck.rel.operators :as rel-op])
   (:import (java.sql ResultSet)))
@@ -44,8 +45,10 @@
   "given a symbol, return a string of the table name as present
   in the (tables) relation"
   [table-name]
-  (:table_name (first (select (tables) (= (.toLowerCase ~table_name) 
-                                          (.toLowerCase (str table-name)))))))
+  (or (:table_name (first (select (tables) 
+                                  (= (.toLowerCase ~table_name) 
+                                     (.toLowerCase (str table-name))))))
+      (throwf "Unknown table: %s" table-name)))
 
 (defn primary-keys
   "Return a relation of tables and columnames which are primary keys.

@@ -17,9 +17,9 @@
               nil "null"
               unique "unique"
               ;; datatypes
+              ;; varchar and decimal defined as functions
               time "time",
               clob "clob",
-              varchar "varchar",
               timestamp "timestamp",
               long-varchar "long varchar",
               xml "xml",
@@ -32,7 +32,6 @@
               char "char",
               long-varchar-for-bit-data "long varchar for bit data",
               bigint "bigint",
-              decimal "decimal",
               double "double",
               blob "blob",
               real "real",
@@ -125,7 +124,7 @@
 ;; drop
 
 (defn drop-table [name]
-  (cl-format nil "drop table ~s" (sql-symbol name)))
+  (cl-format nil "drop table ~a" (sql-symbol name)))
 
 (comment
   (sql-execute (create-table person

@@ -27,8 +27,7 @@
                                       (condition-sql-expr %))
                              set-conditions)
                         (condition-sql-expr where-condition))]
-    ;;(sql-execute )
-    expr))
+    (sql-execute expr)))
 
 (defmacro update-where
   "an sql \"update set name-condition-pairs where where-condition\" like statement, example:
@@ -61,14 +60,6 @@
        (let [vals (map sql-pairs (apply dissoc t pkey))]
 	 (when (not (empty? vals))
 	   (sql-execute (update-stmt vals (map sql-pairs (select-keys t pkey))))))))))
-
-(comment (def rr (relation 'person 'id 'status 'name))
-         (update-table 'person
-                       ;; changeset, applied using update-clause
-                       '({:id 1000 :name "frank"}
-                         {:id 1000 :status -1}
-                         {:id 1001 :name "erhardt" :status 0}))
-)
 
 
 ;; updating a relation using its resultset and another relation
@@ -149,7 +140,6 @@
        (let [fs (seq columns)
 	     expr (cl-format nil "insert into ~s (~{~a~^, ~}) values (~{~a~^, ~})"
 			     table-name (map sql-symbol fs) (take (count fs) (repeat "?")))
-             _ (println expr)
 	     prep (.prepareStatement conn expr)] ;;Statement/RETURN_GENERATED_KEYS
          (csql/transaction
           (doseq [t tuples]

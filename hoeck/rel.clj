@@ -197,7 +197,7 @@
 		 [R S]
                  join-condition))
 
-(defmacro join= [R S a b]
+(defmacro outer-join= [R S a b]
   `(outer-join ~R ~S (join-condition = ~a ~b)))
 
 (defn fjoin [R f]
@@ -296,7 +296,7 @@
 	     "")
 	   "}"))))
 
-(defn rpprint [R] (binding [*print-length* 15] (-> R pretty-print-relation println)))
+(defn rpprint [R] (binding [*print-length* (or *print-length* 15)] (-> R pretty-print-relation println)))
 
 ;; saving & loading
 (comment (defn save-relation [R f]
