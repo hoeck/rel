@@ -72,25 +72,25 @@
 
 (defmethod join :clojure
   ([R S join-condition]
-     (if (empty? S)
-       R
-       (let [{:keys [field-a field-b join-function join-symbol type]} (join-condition)]
-         (set (remove nil? (mapcat (fn [r-tuple]
-                                     (map #(when (join-condition r-tuple %)
-                                             (merge r-tuple %))
-                                          S))
-                                   R)))))))
+     (let [{:keys [field-a field-b join-function join-symbol type]} (join-condition)]
+       (set (remove nil? (mapcat (fn [r-tuple]
+                                   (map #(when (join-condition r-tuple %)
+                                           (merge r-tuple %))
+                                        S))
+                                 R))))))
 
 (comment (join people address (join-condition = :adress-id :id)))
 
 (defmethod outer-join :clojure
   ([R S join-condition]
-     (let [{:keys [field-a field-b join-function join-symbol type]} (join-condition)]
-       (fjoin R (fn [r-tuple] 
-                  (map #(if (join-condition r-tuple %)
-                          (merge r-tuple %)
-                          r-tuple)
-                       S))))))
+     (if (empty? S)
+       R
+       (let [{:keys [field-a field-b join-function join-symbol type]} (join-condition)]
+         (fjoin R (fn [r-tuple] 
+                    (map #(if (join-condition r-tuple %)
+                            (merge r-tuple %)
+                            r-tuple)
+                         S)))))))
 
 (defmethod union        :clojure [& rels] (apply set/union rels))
 (defmethod difference   :clojure [& rels] (apply set/difference rels))
