@@ -72,8 +72,8 @@
 		 (filter assigned-fields jdbc-fields))
         expr (str "select " (if (empty? fields)
                               "*"
-                              (apply str (interpose "," (map sql-symbol fields))))
-                  " from " (sql-symbol table-name))]
+                              (apply str (interpose "," (map sql/sql-symbol fields))))
+                  " from " (sql/sql-symbol table-name))]
     (relation expr (set fields))))
 
 
@@ -100,7 +100,7 @@
 	n (sql/sql-symbol (name (:name m)))]
     (if (= (:type m) :identity)
       n
-      (str (condition-sql-expr c) " as " n))))
+      (str (sql/condition-sql-expr c) " as " n))))
 
 ;; (project-condition-sql (condition (+ ~a "aaaa" ~b)))
 ;; (project-condition-sql (identity-condition :a))
@@ -150,7 +150,7 @@
 (defmethod select :sql
   [R condition]
   (let [expr (str "select *" (from-relation-expr R)
-                  " where " (condition-sql-expr condition))
+                  " where " (sql/condition-sql-expr condition))
         fs (fields R)]
     (relation expr fs)))
 

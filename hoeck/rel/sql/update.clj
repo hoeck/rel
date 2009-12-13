@@ -18,11 +18,11 @@
 
 (defn update-where* [table-name where-condition set-conditions]
   (let [expr (cl-format nil "update ~a set ~:{~a=~a~:^, ~} where ~a"
-                        (sql-symbol (name table-name))
-                        (map #(vector (sql-symbol (name (condition-meta % :name)))
-                                      (condition-sql-expr %))
+                        (sql/sql-symbol (name table-name))
+                        (map #(vector (sql/sql-symbol (name (condition-meta % :name)))
+                                      (sql/condition-sql-expr %))
                              set-conditions)
-                        (condition-sql-expr where-condition))]
+                        (sql/condition-sql-expr where-condition))]
     (sql/execute expr)))
 
 (defmacro update-where
@@ -155,8 +155,8 @@
   ([name fields tuple]
      (cl-format nil "insert into ~a (~{~a~^, ~}) values (~{~a~^, ~})"
                 (sql/sql-symbol name)
-                (map sql-symbol fields)
-                (map #(sql-print (tuple %)) fields))))
+                (map sql/sql-symbol fields)
+                (map #(sql/sql-print (tuple %)) fields))))
 
 (defn table-insert
   "Insert values at fields from tuples into table name. Ignore tuple values for

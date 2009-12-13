@@ -1,6 +1,6 @@
 
 (ns hoeck.rel.sql.create
-  (:use [hoeck.rel.sql :only [sql-symbol sql-execute]]
+  (:use [hoeck.rel.sql :only [sql-symbol execute]]
         clojure.contrib.pprint
         clojure.contrib.macro-utils
         clojure.contrib.except

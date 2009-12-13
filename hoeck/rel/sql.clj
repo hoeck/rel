@@ -34,7 +34,6 @@
         clojure.contrib.pprint
         [clojure.contrib.def :only [defalias]])
   (:require hoeck.rel.non-lazy
-            [hoeck.rel.sql.jdbc :as jdbc]
             [clojure.contrib.sql :as ccsql]	
             [clojure.contrib.sql.internal :as ccsqli])
   (:import (clojure.lang IFn ILookup)
@@ -73,7 +72,7 @@
 (defn set-connection
   "set clojure.contrib.sql.internal/*db* :connection to a permanent connection."
   [connection-param-map]
-  (alter-var-root #'*db* assoc
+  (alter-var-root #'ccsqli/*db* assoc
 		  :connection (ccsqli/get-connection connection-param-map)
 		  :level 0
 		  :rollback (atom false)))
@@ -168,5 +167,7 @@
                          (sql-quote %)
                          :else %)])))
 
-
-
+(require 'hoeck.rel.sql.relations)
+(require 'hoeck.rel.sql.jdbc)
+(require 'hoeck.rel.sql.create)
+(require 'hoeck.rel.sql.update)

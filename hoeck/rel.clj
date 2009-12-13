@@ -306,10 +306,7 @@
 
 ;; sql uses fields and some parts of non_lazy and conditions
 (require 'hoeck.rel.sql)
-(require 'hoeck.rel.sql.relations)
-(require 'hoeck.rel.sql.jdbc)
-(require 'hoeck.rel.sql.create)
-(require 'hoeck.rel.sql.update)
+
 
 
 
