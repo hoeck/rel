@@ -1,25 +1,21 @@
 
 (ns hoeck.rel.sql.update
-  (:use hoeck.rel
-	hoeck.rel.sql
+  (:use hoeck.rel	
         hoeck.rel.conditions ;; for update-where        
         clojure.contrib.pprint
 	clojure.contrib.except)
   (:require [hoeck.rel.sql.jdbc :as jdbc]
-	    [clojure.contrib.sql :as csql]
-	    [clojure.contrib.sql.internal :as csqli])
+            [hoeck.rel.sql :as sql]
+            [clojure.set :as set])
   (:import (java.sql ResultSet
 		     Statement
 		     SQLFeatureNotSupportedException)))
 
 
-;; sql data manipulation
+;; updating with expressions, like:
+;;   "update sometable set name = 'prefix_' + name where status = 10"
+;;   (update-where sometable (= ~status 10) :name (str "prefix_" ~name))
 
-(defn get-connection []
-  (or (:connection csqli/*db*)
-      (throwf "connection is nil, use set-connection to establish one")))
-
-;; updating with expressions, like: "update sometable set name = 'prefix_' + name where status = 10"
 (defn update-where* [table-name where-condition set-conditions]
   (let [expr (cl-format nil "update ~a set ~:{~a=~a~:^, ~} where ~a"
                         (sql-symbol (name table-name))
@@ -27,7 +23,7 @@
                                       (condition-sql-expr %))
                              set-conditions)
                         (condition-sql-expr where-condition))]
-    (sql-execute expr)))
+    (sql/execute expr)))
 
 (defmacro update-where
   "an sql \"update set name-condition-pairs where where-condition\" like statement, example:
@@ -39,118 +35,191 @@
                               (partition 2 field-condition-pairs)))))
 
 
-;; updating a table using a changeset
+;; keeping a chance history in metadata:
 
-(defn update-table
-  "Update the table table-name with the tuples in R where
-  the primary key of table-name is matched against the corresponding
-  field(s) in R.
-  Useful for small changesets and big tables."
-  [table-name tuple-seq]
-  (let [update-stmt (fn [name-value-pairs, pkey-value-pairs] 
-                      (cl-format nil "update ~a set ~:{~a=~a~:^, ~} where ~:{~a=~a~:^ and ~}"
-                                 (sql-symbol table-name)
-                                 name-value-pairs
-                                 pkey-value-pairs))
-        sql-pairs (fn [[k v]] [(sql-symbol k) (sql-print v)])
-        pkey (map keyword (jdbc/primary-key-columns table-name))]
-    (csql/transaction
-     (doseq [t tuple-seq]
-       ;;sql-execute 
-       (let [vals (map sql-pairs (apply dissoc t pkey))]
-	 (when (not (empty? vals))
-	   (sql-execute (update-stmt vals (map sql-pairs (select-keys t pkey))))))))))
+;;   | location | key      | description
+;; 0 | tuple    | :updated | the original tuple
+;; 1 | set      | :deletes | seq of tuples to be deleted from the set
+;; 2 | set      | :inserts | seq of new tuples
+
+(defn update
+  "Update a relation tuple. Collect change history in metadata.
+  Each updated tuple has an :original original-tuple
+  metadata-entry."
+  [R tuple & key-value-pairs-or-hashmap]
+  (let [a key-value-pairs-or-hashmap
+        new-tuple (if (map? (first a)) a (apply hash-map a))
+        t (R tuple)
+        m (:updated (meta t) t)]
+    (conj (disj R tuple) (vary-meta (merge t new-tuple)
+                                    assoc :updated m))))
+
+(defn insert
+  "Insert a tuple into a relation. Collect change history in metadata."
+  [R new-tuple]
+  (let [m (:inserts (meta R) [])]
+    (vary-meta (conj R new-tuple) assoc :inserts (conj m new-tuple))))
+
+(defn delete
+  "remove tuple from the relation. Collect change history in metadata."
+  [R tuple]
+  (let [m (:deletes (meta R) [])
+        t (disj R tuple)]
+    (vary-meta (disj R tuple)
+               assoc :deletes (conj m tuple))))
 
 
-;; updating a relation using its resultset and another relation
-;; versatile but limited for big Rs
+;; change history accessors
 
-(defn- update-resultset
-  "function to do transaction handling, querying and closing the resultset as
-  well as providing additional information for using a resultsets .updateXXX 
-  methods/capabilities."
-  ([R func] (csql/transaction (update-resultset R (get-connection) func)))
-  ([R conn func]
-     (let [expr (.sql_expr R)]
-       (with-open [s (.prepareStatement conn
-					expr
-					ResultSet/TYPE_FORWARD_ONLY
-					ResultSet/CONCUR_UPDATABLE)]
-	 (let [rs (.executeQuery s)
-	       rsmeta (.getMetaData rs)
-	       idxs (range 1 (inc (. rsmeta (getColumnCount))))
-	       name-idx-map (zipmap (map #(-> (.getColumnName rsmeta %) .toLowerCase keyword) idxs)
-				    idxs)
-	       pk (set (map #(-> % name keyword) (filter #(:primary-key (meta %)) (fields R))))
-	       pk-idxs (map name-idx-map pk)
-	       get-pk (fn [] (zipmap pk (map #(.getObject rs %) pk-idxs)))]
-	   (func rs ;; the resultset, step with (while (.next rs) ...)
-		 rsmeta ;; java.sql.ResultSetMetaData
-		 name-idx-map ;; map of :column-name to rs column-index number
-		 get-pk ;; return a primary-key map from a resultset-row
-		 pk ;; a set of :primary-key-fields
-		 ))))))
-
-(defn update-relation 
-  "Given an sql-relation R, apply all changes made to R (changes are updates to non-primary
-  key fields, stored as metadata in the relations tuples.
-  Useful for small relations R, cause the whole resultset must be traversed in order to
-  change values."
-  ([R]
-     (update-resultset 
-      R
-      (fn [rs rsmeta name-idx-map get-pk pk]
-	(while (.next rs)
-	  (let [updates (-> (get-pk) R meta :update)]
-	    (doseq [u updates]
-	      (doseq [[name value] u]
-		(when-not (pk name) ;; don't update primary keys
-		  (when (.isWritable rsmeta (name-idx-map name))
-		    ;; only write into writeable columns
-		    (.updateObject rs (name-idx-map name) value))))
-	      (.updateRow rs))))))))
-
-(defn insert-relation
-  "Insert all new tuples of R into its originating table(s)."
+(defn updates
+  "Return a seq of [original-tuple altered-tuple] for all updated
+  tuples of relation R."
   [R]
-  (update-resultset
-   R
-   (fn [rs rsmeta name-idx-map get-pk pk]
-     (.moveToInsertRow rs)
-     (doseq [i (-> R meta :inserts)]
-       (doseq [[name value] (get R i)]
-	 (let [idx (name-idx-map name)]
-           (when (nil? idx) (throwf "unknown field in tuple: `%s' - not found in resultset" name))
-	   (when (and (not (.isAutoIncrement rsmeta idx)) (.isWritable rsmeta idx))
-	     ;; ignore autoincremented pk-values and non-writable columns
-	     (.updateObject rs idx value))))
-       ;; javadoc: All of the columns in a result set must be given a value each time this method is called before calling insertRow
-       (.insertRow rs)))))
+  (map #(vector (-> % meta :updated) %)
+       (filter #(-> % meta :updated) R)))
+
+(defn deletes
+  "return a seq of deleted tuples from relation R."
+  [R]
+  (-> R meta :deletes))
+
+(defn inserts
+  "Return a seq of inserted tuples from relation R."
+  [R]
+  (-> R meta :inserts))
 
 
-;; using prepared-statements
+;; relation field metadata
 
-(defn insert-table
-  "Insert values of tuples into table.
-  Columns must match be keys in the tuple-hashmaps."
-  ([table-name columns tuples]
-     (insert-table (get-connection) table-name columns tuples))
-  ([conn table-name columns tuples]
-     (if (< 0 (count tuples))
-       (let [fs (seq columns)
-	     expr (cl-format nil "insert into ~s (~{~a~^, ~}) values (~{~a~^, ~})"
-			     table-name (map sql-symbol fs) (take (count fs) (repeat "?")))
-	     prep (.prepareStatement conn expr)] ;;Statement/RETURN_GENERATED_KEYS
-         (csql/transaction
-          (doseq [t tuples]
-            (dorun (map (fn [col idx] (.setObject prep idx (get t col)))
-                        fs
-                        (range 1 (inc (count fs)))))
-            (.addBatch prep))
-          (seq (.executeBatch prep)))
-	 ;; (try (when (.supportsGetGeneratedKeys (.getMetaData conn))
-         ;;      (relation (.getGeneratedKeys prep)))
-	 ;;   (catch Exception e nil))
-	 ))))
+(defn primary-key? [field] (-> field meta :primary-key))
+(defn autoincrement? [field] (-> field meta :autoincrement))
+
+(defn primary-key-fields [fields] (map keyword (filter primary-key? fields)))
+(defn value-fields [fields] (map keyword (remove primary-key? fields)))
+(defn autoincrement-fields [fields]
+  (map keyword
+       (filter #(and (primary-key? %)
+                     (autoincrement? %))
+               fields)))
+
+(defn- sql-pair
+  "Return a pair of [symbol value] from field and value."
+  [f v]
+  [(sql/sql-symbol f) (sql/sql-print v)])
+
+;; updating
+
+(defn table-update-expr
+  "Given a table name, fields, identity fields and an old and the new tuple,
+  return an SQL update statement only updating the changed values."
+  ([name fields identity-fields old-tuple new-tuple]
+     (let [changed-keys (map key (remove (set old-tuple) (select-keys new-tuple fields)))]
+       (cl-format nil "update ~a set ~:{~a=~a~:^, ~} where ~:{~a=~a~:^ and ~}"
+                  (sql/sql-symbol name)
+                  (map #(sql-pair % (new-tuple %)) changed-keys)
+                  (map #(sql-pair % (old-tuple %)) identity-fields)))))
+
+(defn table-update
+  "Given a table name, fields to update and a seq of [old-tuple, new-tuple] pairs,
+  run update statements on the current connection so that the table finally reflects
+  the values from all new-tuples."
+  [name fields old-new-tuple-seq]
+  (when-not (empty? old-new-tuple-seq)
+    (let [identity-keys (primary-key-fields fields)
+          fs-keys (map keyword fields)]
+      (sql/transaction
+       (->> old-new-tuple-seq
+            (map (fn [[old new]] (table-update-expr name fs-keys identity-keys old new)))
+            (apply sql/execute))))))
+
+(defn relation-tables
+  "Read the metadata of R and return map of {table-name field-set, ..}."
+  [R]
+  (reduce (fn [m f]
+            (update-in m [(-> f meta :table)] conj f))
+          {} (fields R)))
+
+(defn relation-update
+  "given a relation R, update all changed tuples using sql update statements."
+  [R]
+  (let [u (updates R)]    
+    (doseq [[table fields] (relation-tables R)]
+      (table-update table fields u))))
+
+
+;; inserting
+
+(defn table-insert-expr
+  "Given a table name, fields, identity fields and an old and the new tuple,
+  return an SQL update statement only updating the changed values."
+  ([name fields tuple]
+     (cl-format nil "insert into ~a (~{~a~^, ~}) values (~{~a~^, ~})"
+                (sql/sql-symbol name)
+                (map sql-symbol fields)
+                (map #(sql-print (tuple %)) fields))))
+
+(defn table-insert
+  "Insert values at fields from tuples into table name. Ignore tuple values for
+  :autoincrement -ed fields. Return a seq of values of _one_ autoincrement
+  field or nil."
+  [name fields tuples]
+  (when-not (empty? tuples)
+    (let [fs-keys (value-fields fields)
+          identity-keys (primary-key-fields fields)
+          autoinc-field (first (autoincrement-fields fields))]
+      ;; (try (when (.supportsGetGeneratedKeys (.getMetaData conn))
+      ;;      (relation (.getGeneratedKeys prep)))
+      ;;   (catch Exception e nil))
+      (sql/transaction
+       (->> tuples
+            (map #(table-insert-expr name fs-keys %))
+            (apply sql/execute-insert autoinc-field))))))
+
+(defn relation-insert
+  "Write inserted tuples into the (connection) database. If R is a joined
+  relation, specify which table you want to update. Returns (inserts R) with
+  possibly autogenerated keys.
+  Only one autogenerated key per relation is read back."
+  [R & [table-name]]
+  (let [tables (relation-tables R)
+        name (or table-name (first (keys tables)))
+        fields (tables name)
+        autoinc-key (first (autoincrement-fields fields))
+        i (inserts R)
+        generated-keys (table-insert name fields i)]
+    (doall (map #(assoc %1 autoinc-key %2) i generated-keys))))
+
+
+;; deleting
+
+(defn table-delete-expr
+  "Return an sql delete from (table-)name, identity-fields and tuples that
+  identify those rows to be deleted."
+  [name identity-fields tuple]
+  (cl-format nil "delete from ~a where ~:{~a=~a~^, ~}"
+             (sql/sql-symbol name)
+             (map #(sql-pair % (tuple %)) identity-fields)))
+
+(defn table-delete
+  "Delete tuples from table name identified through fields."
+  [name fields tuples]
+  (when-not (empty? tuples)
+    (let [pk-keys (primary-key-fields fields)]
+      (sql/transaction
+       (->> tuples
+            (map #(table-delete-expr name pk-keys %))
+            (apply sql/execute))))))
+
+(defn relation-delete
+  "Delete all disjoined tuples from R from its database table.
+  If R is a joined relation, specify a table from where to delete rows."
+  [R & [table-name]]
+  (let [tables (relation-tables R)
+        name (or table-name (first (keys tables)))
+        fields (tables name)        
+        d (deletes R)]
+    (table-delete name fields R)))
+
+
 
 

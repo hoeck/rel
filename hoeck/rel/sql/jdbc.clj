@@ -1,9 +1,9 @@
 
 (ns hoeck.rel.sql.jdbc
   (:use hoeck.rel
-        clojure.contrib.except
-        [clojure.contrib.sql.internal :only [*db*]])
-  (:require [hoeck.rel.operators :as rel-op])
+        clojure.contrib.except)
+  (:require [hoeck.rel.operators :as rel-op]
+            [hoeck.rel.sql :as sql])
   (:import (java.sql ResultSet)))
 
 (defmethod rel-op/relation ResultSet [rs] ;; create a clojure relation from a ResultSet
@@ -19,13 +19,7 @@
     (with-meta R {:fields fields})))
 
 (defn get-metadata []
-  (.getMetaData (:connection *db*)))
-
-(defn metadata-relations
-  ([] (metadata-relations (:connection *db*)))
-  ([connection]
-     (.getMetaData connection)))
-
+  (.getMetaData (sql/connection)))
 
 ;; metadata relations
 
