@@ -3,6 +3,12 @@
   (:use [clojure.contrib.except :only [throw-arg]]))
 
 
+
+(defmacro %>
+  "Short for #(-> % ...)"
+  [& body]
+  `(fn [arg#] (-> arg# ~@body)))
+
 ;;; sequence stuff
 
 (defn segment

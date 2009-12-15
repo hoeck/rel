@@ -298,11 +298,11 @@
 
 (defn rpprint [R] (binding [*print-length* (or *print-length* 15)] (-> R pretty-print-relation println)))
 
-;; saving & loading
-(comment (defn save-relation [R f]
-           (with-out-writer f
-	     (print (relation-or-lookup R)))))
+;; persistence
 
+(defprotocol Persistent
+  (retrieve [R] "Retrieve the current relation.")
+  (store [R] "Write changes to relation."))
 
 ;; sql uses fields and some parts of non_lazy and conditions
 (require 'hoeck.rel.sql)

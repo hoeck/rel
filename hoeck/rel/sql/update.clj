@@ -1,16 +1,16 @@
 
 (ns hoeck.rel.sql.update
-  (:use hoeck.rel	
-        hoeck.rel.conditions ;; for update-where        
+  (:use hoeck.rel.conditions ;; for update-where
         clojure.contrib.pprint
 	clojure.contrib.except)
   (:require [hoeck.rel.sql.jdbc :as jdbc]
             [hoeck.rel.sql :as sql]
+            [hoeck.rel.update :as upd]
+            [hoeck.rel :as rel]
             [clojure.set :as set])
   (:import (java.sql ResultSet
 		     Statement
 		     SQLFeatureNotSupportedException)))
-
 
 ;; updating with expressions, like:
 ;;   "update sometable set name = 'prefix_' + name where status = 10"
@@ -35,59 +35,7 @@
                               (partition 2 field-condition-pairs)))))
 
 
-;; keeping a chance history in metadata:
-
-;;   | location | key      | description
-;; 0 | tuple    | :updated | the original tuple
-;; 1 | set      | :deletes | seq of tuples to be deleted from the set
-;; 2 | set      | :inserts | seq of new tuples
-
-(defn update
-  "Update a relation tuple. Collect change history in metadata.
-  Each updated tuple has an :original original-tuple
-  metadata-entry."
-  [R tuple & key-value-pairs-or-hashmap]
-  (let [a key-value-pairs-or-hashmap
-        new-tuple (if (map? (first a)) a (apply hash-map a))
-        t (R tuple)
-        m (:updated (meta t) t)]
-    (conj (disj R tuple) (vary-meta (merge t new-tuple)
-                                    assoc :updated m))))
-
-(defn insert
-  "Insert a tuple into a relation. Collect change history in metadata."
-  [R new-tuple]
-  (let [m (:inserts (meta R) [])]
-    (vary-meta (conj R new-tuple) assoc :inserts (conj m new-tuple))))
-
-(defn delete
-  "remove tuple from the relation. Collect change history in metadata."
-  [R tuple]
-  (let [m (:deletes (meta R) [])
-        t (disj R tuple)]
-    (vary-meta (disj R tuple)
-               assoc :deletes (conj m tuple))))
-
-
-;; change history accessors
-
-(defn updates
-  "Return a seq of [original-tuple altered-tuple] for all updated
-  tuples of relation R."
-  [R]
-  (map #(vector (-> % meta :updated) %)
-       (filter #(-> % meta :updated) R)))
-
-(defn deletes
-  "return a seq of deleted tuples from relation R."
-  [R]
-  (-> R meta :deletes))
-
-(defn inserts
-  "Return a seq of inserted tuples from relation R."
-  [R]
-  (-> R meta :inserts))
-
+;; writing updates to an sql database
 
 ;; relation field metadata
 
@@ -137,12 +85,12 @@
   [R]
   (reduce (fn [m f]
             (update-in m [(-> f meta :table)] conj f))
-          {} (fields R)))
+          {} (rel/fields R)))
 
 (defn relation-update
   "given a relation R, update all changed tuples using sql update statements."
   [R]
-  (let [u (updates R)]    
+  (let [u (upd/updates R)]    
     (doseq [[table fields] (relation-tables R)]
       (table-update table fields u))))
 
@@ -185,7 +133,7 @@
         name (or table-name (first (keys tables)))
         fields (tables name)
         autoinc-key (first (autoincrement-fields fields))
-        i (inserts R)
+        i (upd/inserts R)
         generated-keys (table-insert name fields i)]
     (doall (map #(assoc %1 autoinc-key %2) i generated-keys))))
 
@@ -217,9 +165,8 @@
   (let [tables (relation-tables R)
         name (or table-name (first (keys tables)))
         fields (tables name)        
-        d (deletes R)]
+        d (upd/deletes R)]
     (table-delete name fields R)))
-
 
 
 

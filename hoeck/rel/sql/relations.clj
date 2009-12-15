@@ -10,6 +10,7 @@
   (:require [hoeck.rel.sql.jdbc :as jdbc]
             [hoeck.rel.sql.update :as upd]
             [hoeck.rel.sql :as sql]
+            [hoeck.rel :as rel]
 	    [clojure.set :as set])
   (:import (clojure.lang IPersistentSet IFn ILookup)))
 
@@ -38,10 +39,20 @@
   (invoke [arg brg] (.invoke (force setd) arg brg))
   (applyTo [args] (.applyTo (force setd) args)))
 
-(defn- sql-expr
+(defn sql-expr
   "Return the relations underlying SQL select expression."
   [sql-relation]
   (.getDynamicField sql-relation :expr ""))
+
+(extend-type ::SqlRelation
+  rel/Persistent
+  (retrieve ([R] (relation (sql-expr R) (fields R))))
+  (store [R]
+    (upd/relation-update R)
+    (upd/relation-delete R)
+    (upd/relation-insert R)
+    ;; clear update/delete/insert metadata?
+    R))
 
 (defmethod print-method ::SqlRelation [R w]
   ;; be sure to set *print-length*, that avoids accidentially 
@@ -76,22 +87,6 @@
                   " from " (sql/sql-symbol table-name))]
     (relation expr (set fields))))
 
-
-;; persistent
-
-(defprotocol Persistent
-  (retrieve [R] "Retrieves a new relation R from the database")
-  (store [R] "Write changes from relation R into the database"))
-
-(extend-type ::SqlRelation
-  Persistent
-  (retrieve ([R] (relation (sql-expr R) (fields R))))
-  (store [R]
-    (upd/relation-update R)
-    (upd/relation-delete R)
-    (upd/relation-insert R)
-    ;; clear update/delete/insert metadata?
-    R))
 
 (defn project-condition-sql
   "generate an sql expression for project column-clauses."
