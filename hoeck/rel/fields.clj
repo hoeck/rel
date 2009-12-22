@@ -22,15 +22,17 @@
 
 (defmethod project :field [R conditions]
   (let [cm (map #(condition-meta %) conditions)
+        _ (def _cm cm)
 	ineligible-conditions (remove #(or (#{:identity :user} %)
-                                           (nil? %)) 
+                                           (nil? %))
                                       (map :type cm))
-        p-fields (set (map #(-> % :name name symbol) cm))]
+        p-fields (set (map #(-> % :name name symbol) cm))
+        _ (def _pfields p-fields)]
     (check-unknown-fields R (mapcat :fields cm))
     (when-not (empty? ineligible-conditions)
       (throwf "Only :identity and :user conditions allowed in project, not: %s"
 	      (print-str ineligible-conditions)))
-    (set (filter p-fields R))))
+    (set (concat p-fields R))))
 
 (comment (project (with-meta #{:a :b :c} {:relation-tag :field})
                   (list (identity-condition :a)
