@@ -25,12 +25,12 @@
   (valAt [k nf] (if (contains? (force setd)) (.get (force setd) k) nf))
   IPersistentSet
   (contains [k] (.contains (force setd) k))
-  (disjoin [k] (SqlRelation expr (.disjoin (force setd) k) (meta this) {}))
+  (disjoin [k] (SqlRelation. expr (.disjoin (force setd) k) (meta this) {}))
   (get [k] (.get (force setd) k))
   ;; IPersistentCollection
   (count [] (count (force setd)))
-  (cons [o] (SqlRelation expr (cons (force setd) o) (meta this) {}))
-  (empty [] (SqlRelation expr #{} (meta this) {}))
+  (cons [o] (SqlRelation. expr (conj (force setd) o) (meta this) {}))
+  (empty [] (SqlRelation. expr #{} (meta this) {}))
   (equiv [o] (.equiv (force setd) o))
   ;; Seqable
   (seq [] (.seq (force setd)))

@@ -35,7 +35,8 @@
               double "double",
               blob "blob",
               real "real",
-              char-for-bit-data "char for bit data"}
+              char-for-bit-data "char for bit data"
+              current-timestamp "current_timestamp"}
             (let [sql-keyw '()]
               (zipmap sql-keyw
                       (map str sql-keyw)))))

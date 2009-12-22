@@ -37,7 +37,7 @@
 
 (defn find-table
   "given a symbol, return a string of the table name as present
-  in the (tables) relation"
+  in the (tables) relation. Throw an exception if the table doesn't exist."
   [table-name]
   (or (:table_name (first (select (tables) 
                                   (= (.toLowerCase ~table_name) 

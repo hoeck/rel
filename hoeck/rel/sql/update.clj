@@ -71,7 +71,7 @@
   "Given a table name, fields to update and a seq of [old-tuple, new-tuple] pairs,
   run update statements on the current connection so that the table finally reflects
   the values from all new-tuples."
-  [name fields old-new-tuple-seq]
+  [name fields & old-new-tuple-seq]
   (when-not (empty? old-new-tuple-seq)
     (let [identity-keys (primary-key-fields fields)
           fs-keys (map keyword fields)]
@@ -90,9 +90,9 @@
 (defn relation-update
   "given a relation R, update all changed tuples using sql update statements."
   [R]
-  (let [u (upd/updates R)]    
+  (let [u (upd/updates R)]
     (doseq [[table fields] (relation-tables R)]
-      (table-update table fields u))))
+      (apply table-update table fields u))))
 
 
 ;; inserting
@@ -110,11 +110,10 @@
   "Insert values at fields from tuples into table name. Ignore tuple values for
   :autoincrement -ed fields. Return a seq of values of _one_ autoincrement
   field or nil."
-  [name fields tuples]
+  [name fields & tuples]
   (when-not (empty? tuples)
-    (let [fs-keys (value-fields fields)
-          identity-keys (primary-key-fields fields)
-          autoinc-field (first (autoincrement-fields fields))]
+    (let [autoinc-field (first (autoincrement-fields fields))
+          fs-keys (remove #(= autoinc-field %) (map keyword fields))]
       ;; (try (when (.supportsGetGeneratedKeys (.getMetaData conn))
       ;;      (relation (.getGeneratedKeys prep)))
       ;;   (catch Exception e nil))
@@ -134,7 +133,7 @@
         fields (tables name)
         autoinc-key (first (autoincrement-fields fields))
         i (upd/inserts R)
-        generated-keys (table-insert name fields i)]
+        generated-keys (apply table-insert name fields i)]
     (doall (map #(assoc %1 autoinc-key %2) i generated-keys))))
 
 
@@ -150,13 +149,17 @@
 
 (defn table-delete
   "Delete tuples from table name identified through fields."
-  [name fields tuples]
+  [name fields & tuples]
   (when-not (empty? tuples)
     (let [pk-keys (primary-key-fields fields)]
       (sql/transaction
        (->> tuples
             (map #(table-delete-expr name pk-keys %))
             (apply sql/execute))))))
+
+(defn table-delete-all [& tables]
+  (sql/transaction
+   (apply sql/execute (map #(format "delete from %s" %) tables))))
 
 (defn relation-delete
   "Delete all disjoined tuples from R from its database table.
@@ -166,7 +169,7 @@
         name (or table-name (first (keys tables)))
         fields (tables name)        
         d (upd/deletes R)]
-    (table-delete name fields R)))
+    (apply table-delete name fields d)))
 
 
 
