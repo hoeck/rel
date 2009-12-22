@@ -41,6 +41,11 @@
 
 ;;; generating sql expressions
 
+(defn clj->sql-function 
+  "converts a infix function form into sql-function string."
+  [[name & args]]
+  (format " %s(%s) " name (apply str (interpose "," args))))
+
 (defn clj->sql-multiarg-op
   "Converts many-arg operator forms into infix-forms.
   ex: (and a b c) -> (a and b and c)."
@@ -68,10 +73,11 @@
 (def #^{:doc "Mapping from function symbols to infix expansion fns."}
      sql-condition-ops
   (let [make-op-map (fn [op-expand-fn ops] (into {} (map #(vector %, op-expand-fn) ops)))]
-    (merge (make-op-map clj->sql-2arg-op '(= < > <= >= not=))
-           (make-op-map clj->sql-multiarg-op '(and or - + * / str))))) ; use str as an alias for string concatenation *shudder*
+    (merge (make-op-map clj->sql-2arg-op '(= < > <= >= not= like)) ;;
+           (make-op-map clj->sql-multiarg-op '(and or - + * / str)) ;; use str as an alias for string concatenation *shudder*
+           (make-op-map clj->sql-function '(lower upper))))) 
 
-(def #^{:doc "Maps clojure-functions their symbols."}
+(def #^{:doc "Maps clojure-functions their symbols."} ;; for join-conditions
      cljfn->sym 
      {= '=
       < '<
@@ -128,6 +134,15 @@
                      ~metadata))
           ([~tuple-sym]
              ~fn-expr)))))
+
+;; generate a condition from a list
+(defn condition* [expr name]
+  (fn ([] (let [qexpr (quote-condition-expression expr)]
+            {:expr (fn [] qexpr)
+             :fields (map #(-> % second str keyword) (collect-exprs field-form? expr))
+             :type :user
+             :name name}))
+    ([_] (throwf "not usable in non-sql relations!"))))
 
 (defn field-quote
   "Makes a symbol in the hoeck.rel.field namespace for each symbol given.
@@ -213,3 +228,4 @@
 ;;  [predicate field-name]
 ;;  (fn ([] {:name field-name
 ;;           :function predicate})))
+

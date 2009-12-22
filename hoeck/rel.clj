@@ -56,13 +56,17 @@
 (defn fields 
   "Return a set of fields of a given relation. Fields are symbols and may have
   metadata, such as type and origin.
+  Optionally, limit the returned fields to those given in fs.
   (Note: relation tuples use keywords - should they use symbols too?)"
-  [R]
-  (with-meta (or (:fields (meta R))
-                 (->> R first keys
-                      (map #(-> % name symbol))
-                      set))
-             {:relation-tag :field}))
+  ([R]
+     (with-meta (or (:fields (meta R))
+                    (->> R first keys
+                         (map #(-> % name symbol))
+                         set))
+                {:relation-tag :field}))
+  ([R & fs]
+     (let [fs (set (map name fs))]
+       (set (filter #(fs (name %)) (fields R))))))
 
 (defn relation? [R]
   (:relation-tag (meta R)))
