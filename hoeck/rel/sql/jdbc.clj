@@ -3,7 +3,9 @@
   (:use hoeck.rel
         clojure.contrib.except)
   (:require [hoeck.rel.operators :as rel-op]
-            [hoeck.rel.sql :as sql])
+            [hoeck.rel.sql :as sql]
+            [hoeck.rel.non-lazy :as n]
+            [hoeck.rel.expressions :as e] )
   (:import (java.sql ResultSet)))
 
 (defmethod rel-op/relation ResultSet [rs] ;; create a clojure relation from a ResultSet
@@ -39,9 +41,9 @@
   "given a symbol, return a string of the table name as present
   in the (tables) relation. Throw an exception if the table doesn't exist."
   [table-name]
-  (or (:table_name (first (select (tables) 
-                                  (= (.toLowerCase ~table_name) 
-                                     (.toLowerCase (str table-name))))))
+  (or (:table_name (first (select* (tables)
+                                   #(= (.toLowerCase (:table_name %)) 
+                                       (.toLowerCase (str table-name))))))
       (throwf "Unknown table: %s" table-name)))
 
 (defn primary-keys
@@ -71,15 +73,18 @@
   :position, :autoincrement and :primary-key."
   [table-name]
   (map :field
-       (project (outer-join (columns table-name)
-		      (project (primary-keys table-name) [~column_name :name] [true :primary-key])
-		      (hoeck.rel.conditions/join-condition = :column_name :name))
-		[(with-meta (-> ~column_name .toLowerCase symbol)
-			    {:table table-name
-			     :position (int ~ordinal_position)
-			     :autoincrement (= ~is_autoincrement "YES")
-			     :primary-key ~primary-key})
-		 :field])))
+       (project* (outer-join (columns table-name)
+                             (project* (primary-keys table-name)
+                                       (e/expr* :column_name :name)
+                                       (e/expr* (constantly true) :primary-key))
+                             (n/join= :column_name :name))
+                 (e/expr* (fn [{:keys [column_name ordinal_position is_autoincrement primary-key]}]
+                            (with-meta (-> column_name .toLowerCase symbol)
+                                       {:table table-name
+                                        :position (int ordinal_position)
+                                        :autoincrement (= is_autoincrement "YES")
+                                        :primary-key primary-key}))
+                          :field))))
 
 (defn primary-key-columns
   "return a set of columnnames which form the primary key of the given table-name."
@@ -87,10 +92,9 @@
   (set (map #(-> % :column_name .toLowerCase symbol)
 	    (primary-keys (find-table table-name)))))
 
-
 (comment ;; examples
-  (rpprint (primary-keys 'person))
-  (rpprint (select (tables) (= ~table_type "TABLE")))
+  (rpprint (primary-keys 'table))
+  (rpprint (select (tables) #(= (:table_type %) "TABLE")))
   (rpprint (columns))
 )
 

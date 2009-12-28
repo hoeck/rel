@@ -28,17 +28,16 @@
   (:require [hoeck.rel.operators :as op]
 	    [hoeck.rel.fields :as fld]
             [hoeck.rel.testdata :as td]
+            [hoeck.rel.expressions :as e]
+            [hoeck.rel.non-lazy :as nl]
             [clojure.set :as set])
   ;; require hoeck.rel.sql at the bottom
   (:use hoeck.library
-        hoeck.rel.conditions
-        hoeck.rel.non-lazy
         clojure.contrib.def
         clojure.contrib.duck-streams
         clojure.contrib.pprint))
 
 (declare fields)
-
 
 ;; global relvar store, allows referring to relations with a keyword
 
@@ -94,12 +93,10 @@
 
 ;; (rel-operation op/select [#{{:id 1} {:id nil}}] (condition ~id))
 
-;; relational operators
-;;   make them work on global relvar or on a given relation (a set with a meta)
+;; relational operators)
 ;;   add some macro foo to make them look prettier
 ;;   always make a functional (trailing `*') and a macro version of each op
-;;   ins arglists: a uppercase R, S or T always denotes a relation or a relvar
-
+;;   in arglists: a uppercase R, S or T always denotes a relation or a relvar
 
 (defn rename*
   "Given a map of {:old :new, ...}, rename the fields of R."
@@ -120,8 +117,12 @@
 ;; select
 
 (defn select*
-  [R condition]
-  (rel-operation op/select [R] condition))
+  "Restricts the set of tuples to the ones 
+  matching the predicate-condition. The latter depends on the type of R,
+  it may be a hoeck.rel.expression/expr for sql and other foreign relations
+  or a plain function for clojure relations."
+  [R expr]
+  (rel-operation op/select [R] expr))
 
 (defmacro select 
   ;; todo: pattern-like matching, eg: [a ? b] matches (condition (and (= *0 a) (= *2 b)))
@@ -133,42 +134,40 @@
   ;;        -> use all of {[()]} 
   ;;       multiarg-select: keyword value -> hashmap access like `gete' where (name :keyword) == field-name
   ;;       => qbe ????
-  "Macro around select. A Condition is a form wrapped around the condition macro.
-  Ex: (select :person (< 20 ~age)) to select all persons of :age greater than 20."
-  [R condition]
-  `(select* ~R (condition ~condition)))
+  [R expr]
+  `(select* ~R (e/expr ~expr)))
 
 
 ;; project
 
-(defn project-condition [R thing]
-  (cond (keyword? thing) [(identity-condition thing)]
-        (symbol? thing) [(identity-condition (keyword thing))]
-        (= * thing) (map #(-> % keyword identity-condition) (fields R))
+(defn project-expr [R thing]
+  (cond (keyword? thing) [(e/identity-expr thing)]
+        (symbol? thing) [(e/identity-expr (keyword thing))]
+        (or (= * thing) (= '* thing)) (map #(-> % keyword e/identity-expr) (fields R))
         :else [thing]))
 
 (defn project*
-  "Project R according to conditions. Conditions must have a name or must be 
-  identity-conditions.
-    :field-name generates an identity-condition on :field-name
-    * expands into identity-conditions for all fields of R"
-  [R & conditions]
-  (rel-operation op/project 
+  "Project R according to exprs. Exprs must have a name or must be 
+  identity-exprs.
+    :field-name generates an identity-expr on :field-name
+    * expands into identity-exprs for all fields of R"
+  [R & exprs]
+  (rel-operation op/project
 		 [R]
-		 (mapcat #(project-condition R %)
-                         conditions)))
+		 (mapcat #(project-expr R %)
+                         exprs)))
 
 (defmacro project
   "Convienience macro for the project operation:
-     :field-name expands to (identity-condition :field-name)
-     [expr :name] expands to (condition expr :name)
-     * expands into identity-conditions for all fields of R at runtime."
+     :field-name expands to (identity-expr :field-name)
+     [expr :name] expands to (expr expr :name)
+     * expands into identity-exprs for all fields of R at runtime."
   [R & exprs]
   `(project* ~R
-             ~@(map #(cond (or (keyword? %) (symbol? %)) `(identity-condition '~%)
-			   (vector? %) `(condition ~(first %) ~(second %))
-			   (= '* %) `*
-			   :else `(condition ~%))
+             ~@(map #(cond (or (keyword? %) (symbol? %)) `(e/identity-expr '~%)
+			   (vector? %) `(e/expr ~(first %) ~(second %))
+			   (= '* %) %
+			   :else `(e/expr ~%))
                     exprs)))
 
 ;; union, difference, intersection
@@ -188,21 +187,25 @@
 
 ;; joins
 
-(defn join [R S join-condition]
+(defn join [R S join-expr]
   (rel-operation op/join 
 		 [R S]
-		 join-condition))
+		 join-expr))
 
-(defmacro join= [R S a b]
-  `(join ~R ~S (join-condition = ~a ~b)))
+(defn join= [R S a b]
+  (if (= (:relation-tag (meta R)) (:relation-tag (meta S)) :sql)
+    (join R S (e/join-expr = a b))
+    (join R S (nl/join= a b))))
 
-(defn outer-join [R S join-condition]
+(defn outer-join [R S join-expr]
   (rel-operation op/outer-join 
 		 [R S]
-                 join-condition))
+                 join-expr))
 
-(defmacro outer-join= [R S a b]
-  `(outer-join ~R ~S (join-condition = ~a ~b)))
+(defn outer-join= [R S a b]
+  (if (= (:relation-tag (meta R)) (:relation-tag (meta S)) :sql)
+    (outer-join R S (e/join-expr = a b))
+    (outer-join R S (nl/join= a b))))
 
 (defn fjoin [R f]
   (rel-operation op/fjoin [R] f))
@@ -213,40 +216,54 @@
 (defn xproduct [R S]
   (rel-operation op/xproduct [R S]))
 
-
 ;; aggregate
 
 (defn aggregate*
   "Use aggregate-conditions to reduce over a range of fields.
-  To groups fields, use identity-conditions."
-  [R & conditions]
-  (rel-operation op/aggregate
-		 [R]
-		 conditions))
+  To keywords to groups fields, and plain `expr' for aggregate expressions ."
+  [R & exprs]
+  (rel-operation op/aggregate [R]
+		 (map #(cond (keyword? %) (e/identity-expr %)
+                             :else %)
+                      exprs)))
 
-(defmacro aggregate
-  "conditions are vectors/lists of either functions(1) or
-  :sum, :avg, :count, :min or :max keywords and a field-name.
-  Single keywords denote fields to group.
-  (1) see hoeck.rel.conditions/aggregate-condition-types for 
-  definitions of such functions."
-  [R & conditions]
-  `(aggregate* ~R ~@(map #(cond (or (keyword? %) (symbol? %)) `(identity-condition ~%)
-                                (or (list? %) (vector? %))
-                                  `(aggregate-condition ~(first %) ~(second %)))
-                         conditions)))
+;; order-by
+
+(defn order-by
+  "Return a sorted relation.
+  For sql relations, use :field-name or [:field-name] to indicate descending or
+  ascending order.
+  For clojure relations you may pass a sort function, called
+  with two tuples and returning -1, 0 or 1"
+  [R & fields-or-functions]
+  (rel-operation op/order-by [R] fields-or-functions))
+
+
+;; index-by?? - return a relation, with o(logn) access for the given combination of index columns
+
+;;(defmacro aggregate
+;;  "conditions are vectors/lists of either functions(1) or
+;;  :sum, :avg, :count, :min or :max keywords and a field-name.
+;;  Single keywords denote fields to group.
+;;  (1) see hoeck.rel.conditions/aggregate-condition-types for 
+;;  definitions of such functions."
+;;  [R & conditions]
+;;  `(aggregate* ~R ~@(map #(cond (or (keyword? %) (symbol? %)) `(identity-condition ~%)
+;;                                (or (list? %) (vector? %))
+;;                                  `(aggregate-condition ~(first %) ~(second %)))
+;;                         conditions)))
 
 
 ;; predicates:
                       
-(defn like
-  "Return true if the expr matches string symbol or keyword x
-  Expr is eiter a string or a symbol. It is matched against x ignoring
-  case and using `*' as a wildcard."
-  [expr x] ;; sql-like-like, match everything easily, simplified regex
-  (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
-    (.matches (.toLowerCase x) 
-              (str "^" (.replace (.toLowerCase (str expr)) "*" ".*") "$"))))
+;;(defn like
+;;  "Return true if the expr matches string symbol or keyword x
+;;  Expr is eiter a string or a symbol. It is matched against x ignoring
+;;  case and using `*' as a wildcard."
+;;  [expr x] ;; sql-like-like, match everything easily, simplified regex
+;;  (let [x (if (or (symbol? x) (keyword? x)) (name x) (str x))]
+;;    (.matches (.toLowerCase x) 
+;;              (str "^" (.replace (.toLowerCase (str expr)) "*" ".*") "$"))))
 
 ;; pretty printing
 
@@ -254,15 +271,13 @@
   "Return a map of all :field-name max-size for pretty-printing."
   [R]
   (let [R (set R) ;; make it a clojure relation
-        strlen-condition #(fn ([] {:name %}) ([tuple] (-> tuple % pr-str count)))
-        fields (fields R)
+        strlen-expr #(e/expr* (fn [tuple] (-> % tuple pr-str count)) %)
+        kfields (map keyword (fields R))
         max-len-map (first (apply aggregate*
-                                  (->> fields
-                                       (map keyword)
-                                       (map strlen-condition)
+                                  (->> kfields
+                                       (map strlen-expr)
                                        (apply project* R))
-                                  ;;(apply project* R (map strlen-condition fields))
-                                  (map #(aggregate-condition :max %) fields)))]
+                                  (map nl/a-max kfields)))]
     (into {} (map (fn [[k v]] [k (-> k str count (+ 1 v))]) max-len-map))))
 
 (defn- format-string

@@ -26,20 +26,18 @@
 
 (ns hoeck.rel.sql
   (:use hoeck.library
-	;; hoeck.rel
 	hoeck.rel.operators
-        hoeck.rel.conditions
         clojure.walk
 	clojure.contrib.except	
         clojure.contrib.pprint
         [clojure.contrib.def :only [defalias]])
   (:require hoeck.rel.non-lazy
+            [hoeck.rel.expressions :as e]
             [clojure.contrib.sql :as ccsql]	
             [clojure.contrib.sql.internal :as ccsqli])
   (:import (clojure.lang IFn ILookup)
            (java.util Collection Set)
-	   (java.sql Connection Types)))
-
+           (java.sql Connection Types)))
 
 ;; sql 
 
@@ -130,49 +128,55 @@
                    'create false})
   )
 
+(defmacro join= [R S a b]
+  `(join ~R ~S (e/join-expr '= ~a ~b)))
+
+(defmacro outer-join= [R S a b]
+  `(outer-join ~R ~S (e/join-expr = ~a ~b)))
+
 
 ;; sql-expressions from hoeck.rel.conditions
 
-(defn code-walk
-  "Like prewalk, but stop walking on quoted forms."
-  [f form]
-  (if (and (list? form) (= (first form) 'quote))
-    form
-    (walk (partial code-walk f) identity (f form))))
+;;(defn code-walk
+;;  "Like prewalk, but stop walking on quoted forms."
+;;  [f form]
+;;  (if (and (list? form) (= (first form) 'quote))
+;;    form
+;;    (walk (partial code-walk f) identity (f form))))
 
-(defn condition-sql-expr
-  "given a condition, return its expression as an sql-string"
-  [c]
-  (print-str 
-	 (reduce #(code-walk %2 %1)
-		 (condition-expr c 
-				 ;; flag fields (symbol metadata)
-				 #(with-meta (-> % name symbol) {:sql :field}))
-		 [;; replace str with +
-		  #(if (and (seq? %) (= (first %) 'str)) (list* '+ (next %)) %)
-		  ;; flag operators
-		  #(if (and (seq? %) (symbol? (first %)))
-		     (list* (with-meta (first %) {:sql :operator}) (next %))
-		     %)
-		  ;; sql-quote strings
-		  #(cond (or (and (symbol? %)
-                                  (not (#{:field :operator} (:sql (meta %)))))
-                             (keyword? %))
-                         (sql-quote (name %))
-                         (string? %)
-                         (sql-quote %)
-                         :else %)
-                  ;; expand operators: (and a b c) -> (a and b and c)
-                  ;; and functions (lower name) -> " lower(name) "
-		  #(if (seq? %)
-		     (if-let [trans (sql-condition-ops (first %))]
-		       (trans (list* (with-meta (first %) {:sql :operator}) (next %)))
-		       (list* (with-meta (first %) {:sql :function})))
-		     %)
-                  ;; print bigints without the trailing M
-                  #(cond (number? %) (str %)
-                         :else %)
-                  ])))
+;;(defn condition-sql-expr
+;;  "given a condition, return its expression as an sql-string"
+;;  [c]
+;;  (print-str 
+;;	 (reduce #(code-walk %2 %1)
+;;		 (condition-expr c 
+;;				 ;; flag fields (symbol metadata)
+;;				 #(with-meta (-> % name symbol) {:sql :field}))
+;;		 [;; replace str with +
+;;		  #(if (and (seq? %) (= (first %) 'str)) (list* '+ (next %)) %)
+;;		  ;; flag operators
+;;		  #(if (and (seq? %) (symbol? (first %)))
+;;		     (list* (with-meta (first %) {:sql :operator}) (next %))
+;;		     %)
+;;		  ;; sql-quote strings
+;;		  #(cond (or (and (symbol? %)
+;;                                  (not (#{:field :operator} (:sql (meta %)))))
+;;                             (keyword? %))
+;;                         (sql-quote (name %))
+;;                         (string? %)
+;;                         (sql-quote %)
+;;                         :else %)
+;;                  ;; expand operators: (and a b c) -> (a and b and c)
+;;                  ;; and functions (lower name) -> " lower(name) "
+;;		  #(if (seq? %)
+;;		     (if-let [trans (sql-condition-ops (first %))]
+;;		       (trans (list* (with-meta (first %) {:sql :operator}) (next %)))
+;;		       (list* (with-meta (first %) {:sql :function})))
+;;		     %)
+;;                  ;; print bigints without the trailing M
+;;                  #(cond (number? %) (str %)
+;;                         :else %)
+;;                  ])))
 
 (require 'hoeck.rel.sql.relations)
 (require 'hoeck.rel.sql.jdbc)

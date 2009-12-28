@@ -1,15 +1,14 @@
 
 (ns hoeck.rel.sql.relations
   (:use hoeck.rel.operators
-        hoeck.rel.conditions
         hoeck.library
-        [hoeck.rel.non-lazy :only [get-aggregate-conditions get-group-conditions]]
         [hoeck.rel :only [fields pretty-print-relation]]
         clojure.contrib.pprint
         clojure.contrib.except)
   (:require [hoeck.rel.sql.jdbc :as jdbc]
             [hoeck.rel.sql.update :as upd]
             [hoeck.rel.sql :as sql]
+            [hoeck.rel.expressions :as e]
             [hoeck.rel :as rel]
 	    [clojure.set :as set])
   (:import (clojure.lang IPersistentSet IFn ILookup)))
@@ -88,30 +87,24 @@
     (relation expr (set fields))))
 
 
-(defn project-condition-sql
+(defn project-expr-sql
   "generate an sql expression for project column-clauses."
-  [c]
-  (let [m (condition-meta c)
-	n (sql/sql-symbol (name (:name m)))]
-    (if (= (:type m) :identity)
+  [expr]
+  (let [n (sql/sql-symbol (name (e/get-name expr)))]
+    (if (e/identity? expr)
       n
-      (str (sql/condition-sql-expr c) " as " n))))
+      (str (:expr expr)  " as " n))))
 
-;; (project-condition-sql (condition (+ ~a "aaaa" ~b)))
-;; (project-condition-sql (identity-condition :a))
-
-(defn join-condition-sql
+(defn join-expr-sql
   "generate a sql where clause from a join-condition."
-  [join-c]
-  (let [cm (condition-meta join-c)]
-    (when-not (= (:type cm) :join)
-      (throwf "cannot use non :join condition in sql-join"))
-    (when-not (:join-symbol cm)
-      (throwf "unknown join condition: %s" (:join-function cm)))
+  [join-expr]
+  (when-not (e/join? join-expr) (throwf "cannot use non :join condition in sql-join"))
+  (let [op ({= '= < '< > '> <= '<= >= '>=} (:op join-expr) (:op join-expr))]
+    (when-not op (throwf "unknown join condition: %s" (:op join-expr)))
     (format "%s %s %s"
-            (sql/sql-symbol (name (:field-a cm)))
-            (:join-symbol cm)
-            (sql/sql-symbol (name (:field-b cm))))))
+            (sql/sql-symbol (name (:field-a join-expr)))
+            op
+            (sql/sql-symbol (name (:field-b join-expr))))))
 
 ;; (join-condition-sql (join-condition = :a :b))
 
@@ -134,18 +127,17 @@
 	  (apply str " from "))))
 
 (defmethod project :sql
-  [R conditions]
-  ;; identity-condition: "%s"
+  [R exprs]
   (let [expr (str "select "
-                  (apply str (interpose "," (map project-condition-sql conditions)))
+                  (apply str (interpose "," (map project-expr-sql exprs)))
 		  (from-relation-expr R))
-        fs (project (fields R) conditions)]
+        fs (project (fields R) exprs)]
     (relation expr fs)))
 
 (defmethod select :sql
-  [R condition]
+  [R select-expr]
   (let [expr (str "select *" (from-relation-expr R)
-                  " where " (sql/condition-sql-expr condition))
+                  " where " (e/get-expr select-expr))
         fs (fields R)]
     (relation expr fs)))
 
@@ -167,10 +159,10 @@
     (relation expr fs)))
 
 (defmethod join :sql
-  [R S join-condition]
+  [R S join-expr]
   (let [expr (str "select *" (from-relation-expr R S) " where "
-                  (join-condition-sql join-condition))
-        fs (join (fields R) (fields S) join-condition)]
+                  (join-expr-sql join-expr))
+        fs (join (fields R) (fields S) join-expr)]
     (relation expr fs)))
 
 (defmethod fjoin :sql
@@ -179,12 +171,12 @@
   (fjoin (set R) f))
 
 (defmethod outer-join :sql
-  [R S join-condition]
+  [R S join-expr]
   (let [expr (cl-format nil "select * from (~a) ~a left outer join (~a) ~a on ~a"
                         (sql-expr R) (sql/sql-symbol (gensym 'table))
                         (sql-expr S) (sql/sql-symbol (gensym 'table))
-                        (join-condition-sql join-condition))
-        fs (join (fields R) (fields S) join-condition)]
+                        (join-expr-sql join-expr))
+        fs (join (fields R) (fields S) join-expr)]
     (relation expr fs)))
 
 (defn sql-set-operation
@@ -199,19 +191,30 @@
 (defmethod difference :sql [R S] (sql-set-operation "except"))
 (defmethod intersection :sql [R S] (sql-set-operation "intersect"))
 
-(defmethod aggregate :sql [R conditions]
-  (let [aggregates (get-aggregate-conditions conditions)
-        groups (get-group-conditions conditions)
-        agg-selects (map #(let [m (condition-meta %)]
-                            (format "%s(%s)"
-                                    (name (:function %))
-                                    (name (:name m))))
+(defmethod aggregate :sql [R exprs]
+  (let [aggregates (remove e/identity? exprs)
+        groups (->> exprs
+                    (filter e/identity?)
+                    (map e/get-name))
+        agg-selects (map #(format "%s(%s)"
+                                  (name (e/get-expr %))
+                                  (name (e/get-name %)))
                          aggregates)
-        expr (str "select " (->> groups agg-selects
+        expr (str "select " (->> (concat groups agg-selects)
                                  (interpose ", ")
                                  print-str)
                   (from-relation-expr R)
                   " group by " (->> groups (interpose ", ") print-str))
         fs (aggregate (fields R))]
     (relation expr fs)))
+
+(defmethod order-by :sql [R sort-fields]
+  (let [expr (str "select *" (from-relation-expr R)
+		  " order by " (apply str (interpose ", "
+                                                     (map #(str (name %) 
+                                                                (if (vector? %)
+                                                                  " asc"
+                                                                  " desc"))
+                                                          sort-fields))))]
+    (relation expr (order-by (fields R) sort-fields))))
 

@@ -1,6 +1,6 @@
 
 (ns hoeck.rel.sql.update
-  (:use hoeck.rel.conditions ;; for update-where
+  (:use hoeck.rel.expressions ;; for update-where
         clojure.contrib.pprint
 	clojure.contrib.except)
   (:require [hoeck.rel.sql.jdbc :as jdbc]
@@ -16,23 +16,23 @@
 ;;   "update sometable set name = 'prefix_' + name where status = 10"
 ;;   (update-where sometable (= ~status 10) :name (str "prefix_" ~name))
 
-(defn update-where* [table-name where-condition set-conditions]
-  (let [expr (cl-format nil "update ~a set ~:{~a=~a~:^, ~} where ~a"
-                        (sql/sql-symbol (name table-name))
-                        (map #(vector (sql/sql-symbol (name (condition-meta % :name)))
-                                      (sql/condition-sql-expr %))
-                             set-conditions)
-                        (sql/condition-sql-expr where-condition))]
-    (sql/execute expr)))
+;;(defn update-where* [table-name where-expr set-exprs]
+;;  (let [expr (cl-format nil "update ~a set ~:{~a=~a~:^, ~} where ~a"
+;;                        (sql/sql-symbol (name table-name))
+;;                        (map #(vector (sql/sql-symbol (name (expr-meta % :name)))
+;;                                      (sql/expr-sql-expr %))
+;;                             set-exprs)
+;;                        (sql/expr-sql-expr where-expr))]
+;;    (sql/execute expr)))
 
-(defmacro update-where
-  "an sql \"update set name-condition-pairs where where-condition\" like statement, example:
-  (update-where 'personen (< ~id 1000) :id (+ ~id 1) :name (str ~name \"_x\"))"
-  [table-name where-condition & field-condition-pairs]
-  `(update-where* ~table-name (condition ~where-condition)
-                  ~(vec (map (fn [[field cond-expr]]
-                                `(condition ~cond-expr ~field))
-                              (partition 2 field-condition-pairs)))))
+;;(defmacro update-where
+;;  "an sql \"update set name-condition-pairs where where-condition\" like statement, example:
+;;  (update-where 'personen (< ~id 1000) :id (+ ~id 1) :name (str ~name \"_x\"))"
+;;  [table-name where-condition & field-condition-pairs]
+;;  `(update-where* ~table-name (condition ~where-condition)
+;;                  ~(vec (map (fn [[field cond-expr]]
+;;                                `(condition ~cond-expr ~field))
+;;                              (partition 2 field-condition-pairs)))))
 
 
 ;; writing updates to an sql database

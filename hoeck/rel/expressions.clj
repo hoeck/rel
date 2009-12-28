@@ -81,11 +81,13 @@
    c))
 
 (defn expr*
-  "Returns a map containing an expr-string."
+  ""
   [expr & [name]]
-  {:expr (sql-expr expr)
+  {:expr (cond (seq? expr) (sql-expr expr)
+               (ifn? expr) expr
+               :else (throw-arg "expecting fn or seq."))
    :name name})
-
+  
 (defn unquote-code-walk
   "Like postwalk, but stop walking on unquoted forms."
   [f form]
@@ -104,11 +106,50 @@
 (defmacro expr
   "Macro for creating sql expressions."
   [expr & [name]]
-  `(condition* ~(syntax-quote-expr expr) name))
+  (let [name (if (nil? name) (keyword (gensym 'expr)) name)]
+    `(expr* ~(syntax-quote-expr expr) ~name)))
 
 (comment
     
   (= ((condition* '(and (= id 10) (like (lower 10) "a%"))))
      ((let [a 10] (condition (and (= id 10) (like (lower ~a) "a%"))))))
 
+  (= ((:expr (expr ~#(:a %))) {:a 9}) 9)
+  (= ((:expr (expr* #(:a %))) {:a 8}) 8)
+  
   )
+
+(defmacro identity-expr [keyw]
+  `{:type :identity
+    :name ~keyw})
+
+(defmacro join-expr [op key1 key2]
+  `{:type :join
+    :op '~op
+    :field-a ~key1
+    :field-b ~key2})
+
+;; expressions
+
+(defn expr? [e]
+  (or (keyword? e)
+      (map? e)
+      (fn? e)))
+
+(defn identity? [e]
+  (or (keyword? e) 
+      (and (map? e) (-> e :type (= :identity)))))
+
+(defn join? [e]
+  (and (map? e) (-> e :type)))
+
+(defn get-expr [e]
+  (or (and (map? e) (e :expr))
+      (and (fn? e) e)
+      (throwf "expression does not yield a expression")))
+
+(defn get-name [e]
+  (cond (keyword? e) e
+        (map? e) (e :name)
+        :else (throwf "cannot extract name from %s" e)))
+

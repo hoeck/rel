@@ -3,11 +3,11 @@
 
 (ns hoeck.rel.non-lazy
   (:use hoeck.rel.operators
-        hoeck.rel.conditions
         hoeck.library
         clojure.contrib.pprint
 	clojure.contrib.except)
-  (:require [clojure.set :as set]))
+  (:require [clojure.set :as set]
+            [hoeck.rel.expressions :as e]))
 
 (use 'hoeck.rel.testdata)
 
@@ -44,17 +44,23 @@
 
 (defmethod project :clojure
   ([_] #{})
-  ([R conditions]
-     (let [cmeta (map #(condition-meta %) conditions)
-           prj-fields (map :name cmeta)]
-       (set (map (fn [tuple] 
-                   (zipmap (map keyword prj-fields)
-                           (map #(% tuple) conditions)))
+  ([R exprs]
+     (let [prj-fields (map e/get-name exprs)
+           exprs (map #(if (e/identity? %) 
+                         %2
+                         (e/get-expr %1))
+                      exprs prj-fields)]
+       (set (map (fn [tuple]
+                   (zipmap prj-fields
+                           (map #(% tuple) exprs)))
                  R)))))
 
 (defmethod select :clojure
-  ([R condition]     
-     (set (filter condition R))))
+  ([R expr]
+     (set (filter expr R))))
+
+(defn rename-keys [m kmap]
+  (if m (into (empty m) (map (fn [[k v]] [(or (kmap k) k), v]) m))))
 
 (defmethod rename :clojure
   ([R rename-map]
@@ -71,56 +77,61 @@
   (set (mapcat #(map (partial merge %) (f %)) R)))
 
 (defmethod join :clojure
-  ([R S join-condition]
-     (let [{:keys [field-a field-b join-function join-symbol type]} (join-condition)]
-       (set (remove nil? (mapcat (fn [r-tuple]
-                                   (map #(when (join-condition r-tuple %)
-                                           (merge r-tuple %))
-                                        S))
-                                 R))))))
+  ([R S join-expr]
+     (set (remove nil? (mapcat (fn [r-tuple]
+                                 (map #(when (join-expr r-tuple %)
+                                         (merge r-tuple %))
+                                      S))
+                               R)))))
 
-(comment (join people address (join-condition = :adress-id :id)))
+(defn join= [field-a field-b] #(= (field-a %1) (field-b %2)))
+
+(comment (= (join people address #(= (:adress-id %1) (:id %2)))
+            (join people address (join= :adress-id :id))))
 
 (defmethod outer-join :clojure
-  ([R S join-condition]
+  ([R S join-fn]
      (if (empty? S)
        R
-       (let [{:keys [field-a field-b join-function join-symbol type]} (join-condition)]
-         (fjoin R (fn [r-tuple] 
-                    (map #(if (join-condition r-tuple %)
-                            (merge r-tuple %)
-                            r-tuple)
-                         S)))))))
+       (fjoin R (fn [r-tuple] 
+                  (map #(if (join-fn r-tuple %)
+                          (merge r-tuple %)
+                          r-tuple)
+                       S))))))
 
 (defmethod union        :clojure [& rels] (apply set/union rels))
 (defmethod difference   :clojure [& rels] (apply set/difference rels))
 (defmethod intersection :clojure [& rels] (apply set/intersection rels))
 
-;; helpers for aggregate
-(defn get-aggregate-conditions
-  "Given some conditions, return all aggregate-conditions."
-  [conditions]
-  (filter #(= (condition-meta % :type) :aggregate) conditions))
+;;;; helpers for aggregate
+;;(defn get-aggregate-conditions
+;;  "Given some conditions, return all aggregate-conditions."
+;;  [conditions]
+;;  (filter #(= (condition-meta % :type) :aggregate) conditions))
 
-(defn get-group-conditions
-  "Given some conditions, the names of all identity-conditions
-  (aka the groups in an aggregate operation)"
-  [conditions]
-  (->>  conditions
-        (filter #(= (condition-meta % :type) :identity))
-        (map #(condition-meta % :name))))
+;; some predefined aggregate functions
+(defn a-sum [field] (fn [R] {field (apply + (map field R))}))
+(defn a-avg [field] (fn [R] {field (/ (reduce + (map field R)) (count R))}))
+(defn a-count [field] (fn [R] ({field (count R)})))
+(defn a-min [field] (fn [R] {field (apply min (map field R))}))
+(defn a-max [field] (fn [R] {field (apply max (map field R))}))
 
 (defmethod aggregate :clojure
-  [R conditions] ;; identity-conditions and or aggregate-condition
-  (let [aggregates (get-aggregate-conditions conditions)
-        groups (get-group-conditions conditions)
-        agg-names (map #(condition-meta % :name) aggregates)
+  [R exprs] ;; identity-exprs and or aggregate-expr
+  (let [aggregates (remove e/identity? exprs)
+        groups (->>  exprs
+                     (filter e/identity?)
+                     (map e/get-name))
+        agg-names (map e/get-name aggregates)
         index (set/index R groups)]
     (set (map (fn [[k v]]
-                (merge k (zipmap agg-names
-                                 (map #(% v) aggregates))))
+                (apply merge k (map #((e/get-expr %) v) aggregates)))
               index))))
 
-(comment (aggregate agg-test-rel [(identity-condition :group)
-                                  (aggregate-condition :count :age)]))
+(comment (aggregate agg-test-rel [(e/identity-expr :group)
+                                  (a-sum :power)]))
 
+(defmethod order-by :clojure [R fields-or-fn]
+  (if (fn? (first fields-or-fn))
+    (apply sorted-set-by fields-or-fn R)
+    (throwf "todo")))

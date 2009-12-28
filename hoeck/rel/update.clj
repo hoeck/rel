@@ -1,5 +1,6 @@
 
-(ns hoeck.rel.update)
+(ns hoeck.rel.update
+  (:require [hoeck.rel :as rel]))
 
 ;; keeping a chance history in metadata:
 
@@ -17,14 +18,32 @@
         new-tuple (if (map? (first a)) (first a) (apply hash-map a))
         t (R tuple)
         m (:updated (meta t) t)]
-    (conj (disj R tuple) (vary-meta (merge t new-tuple)
-                                    assoc :updated m))))
+    (if (not= t new-tuple)
+      (conj (disj R tuple) (vary-meta (merge t new-tuple)
+                                      assoc :updated m))
+      R)))
+
+(def new-id-seq (map #(symbol (str "new-id-" %)) (range 0 1999)))
 
 (defn insert
-  "Insert a tuple into a relation. Collect change history in metadata."
+  "Insert a tuple into a relation. Collect change history in metadata.
+  If R has an autoincremented primary key field, generate a temporary
+  unique id for this one field."
   ([R new-tuple]
-     (let [m (:inserts (meta R) [])]
-       (vary-meta (conj R new-tuple) assoc :inserts (conj m new-tuple))))
+     (let [m (:inserts (meta R) [])
+           auto-pkey (->> (-> R meta :fields)
+                          (filter #(and (-> % meta :primary-key)
+                                        (-> % meta :autoincrement)))
+                          first keyword)
+           new-ids (or (:new-ids (meta R)) new-id-seq)
+           new-tuple (if auto-pkey
+                       (assoc new-tuple auto-pkey (first new-id-seq))
+                       new-tuple)]
+       (vary-meta (conj R new-tuple) assoc
+                  :inserts (conj m new-tuple)
+                  :new-ids (if auto-pkey
+                             (rest new-ids)
+                             nil))))
   ([R new-tuple & more-new-tuples]
      (reduce insert (insert R new-tuple) more-new-tuples)))
 
