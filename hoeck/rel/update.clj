@@ -1,6 +1,7 @@
 
 (ns hoeck.rel.update
-  (:require [hoeck.rel :as rel]))
+  ;;(:require [hoeck.rel :as rel])
+  )
 
 ;; keeping a chance history in metadata:
 
@@ -38,7 +39,9 @@
            new-ids (or (:new-ids (meta R)) new-id-seq)
            new-tuple (if auto-pkey
                        (assoc new-tuple auto-pkey (first new-id-seq))
-                       new-tuple)]
+                       new-tuple)
+	   ;; mark the new tuple, so it is only inserted, not updated
+	   new-tuple (vary-meta new-tuple assoc :inserted true)]
        (vary-meta (conj R new-tuple) assoc
                   :inserts (conj m new-tuple)
                   :new-ids (if auto-pkey
@@ -57,7 +60,6 @@
   ([R tuple & tuples]
      (reduce remove (remove R tuple) tuples)))
 
-
 ;; change history accessors
 
 (defn updates
@@ -65,7 +67,8 @@
   tuples of relation R."
   [R]
   (map #(vector (-> % meta :updated) %)
-       (filter #(-> % meta :updated) R)))
+       (remove #(-> % meta :inserted)
+	       (filter #(-> % meta :updated) R))))
 
 (defn deletes
   "return a seq of deleted tuples from relation R."
