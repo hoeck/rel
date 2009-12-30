@@ -92,6 +92,7 @@
      (with-open [s (.createStatement (connection))]
        (when-not (empty? expr) (.execute s expr))))
   ([expr & exprs]
+     (def _eee (cons expr exprs))
      (let [es (remove empty? (cons expr exprs))]
        (with-open [s (.createStatement (connection))]
          (when-not (empty? es)

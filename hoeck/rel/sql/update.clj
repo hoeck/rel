@@ -61,17 +61,19 @@
   "Given a table name, fields, identity fields and an old and the new tuple,
   return an SQL update statement only updating the changed values."
   ([name fields identity-fields old-tuple new-tuple]
-     (let [changed-keys (map key (remove (set old-tuple) (select-keys new-tuple fields)))]
-       (cl-format nil "update ~a set ~:{~a=~a~:^, ~} where ~:{~a=~a~:^ and ~}"
-                  (sql/sql-symbol name)
-                  (map #(sql-pair % (new-tuple %)) changed-keys)
-                  (map #(sql-pair % (old-tuple %)) identity-fields)))))
+     (when-not (= old-tuple new-tuple)
+       (let [changed-keys (map key (remove (set old-tuple) (select-keys new-tuple fields)))]
+	 (cl-format nil "update ~a set ~:{~a=~a~:^, ~} where ~:{~a=~a~:^ and ~}"
+		    (sql/sql-symbol name)
+		    (map #(sql-pair % (new-tuple %)) changed-keys)
+		    (map #(sql-pair % (old-tuple %)) identity-fields))))))
 
 (defn table-update
   "Given a table name, fields to update and a seq of [old-tuple, new-tuple] pairs,
   run update statements on the current connection so that the table finally reflects
   the values from all new-tuples."
   [name fields & old-new-tuple-seq]
+  (def _u [name fields old-new-tuple-seq])
   (when-not (empty? old-new-tuple-seq)
     (let [identity-keys (primary-key-fields fields)
           fs-keys (map keyword fields)]

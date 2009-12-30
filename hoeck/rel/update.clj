@@ -31,8 +31,7 @@
   If R has an autoincremented primary key field, generate a temporary
   unique id for this one field."
   ([R new-tuple]
-     (let [m (:inserts (meta R) [])
-           auto-pkey (->> (-> R meta :fields)
+     (let [auto-pkey (->> (-> R meta :fields)
                           (filter #(and (-> % meta :primary-key)
                                         (-> % meta :autoincrement)))
                           first keyword)
@@ -43,7 +42,6 @@
 	   ;; mark the new tuple, so it is only inserted, not updated
 	   new-tuple (vary-meta new-tuple assoc :inserted true)]
        (vary-meta (conj R new-tuple) assoc
-                  :inserts (conj m new-tuple)
                   :new-ids (if auto-pkey
                              (rest new-ids)
                              nil))))
@@ -78,4 +76,4 @@
 (defn inserts
   "Return a seq of inserted tuples from relation R."
   [R]
-  (-> R meta :inserts))
+  (filter #(-> % meta :inserted) R))

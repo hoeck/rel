@@ -35,26 +35,31 @@
 (defn clj->function 
   "converts a infix function form into sql-function string."
   [[name & args]]
-  (format "%s(%s) " name (apply str (interpose "," args))))
+  (format "%s(%s) " name (apply str (interpose "," (remove nil? args)))))
 
 (defn clj->multiarg-op
   "Converts many-arg operator forms into infix-forms.
   ex: (and a b c) -> (a and b and c)."
   [[name & args]]
-  (cl-format nil (str "(~{~a~^ " name " ~})") args))
+  (let [args (remove nil? args)]
+    (when-not (empty? args)
+      (cl-format nil (str "(~{~a~^ " name " ~})") args))))
 
 (defn clj->2arg-op
   "Converts 2 arg operators from clojure to sql-where clause expressions.
   ex: (= a 1) -> (a = ), (= a b c) -> ((a = b) and (b = c))."
-  [[name arg1 arg2 & more]]
-  (if (empty? more) 
-    (cl-format nil "(~a ~a ~a)" arg1 name arg2)
-    (str (clj->2arg-op [name arg1 arg2])
-         (clj->2arg-op (cons name more)))))
+  [[name & args]]
+  (let [args (remove nil? args)
+	[arg1 arg2 & more] args]
+    (when-not (empty? args)
+      (if (empty? more)
+	(cl-format nil "(~a ~a ~a)" arg1 name arg2)
+	(str (clj->2arg-op [name arg1 arg2])
+	     (clj->2arg-op (cons name more)))))))
 
-(defn clj->sql-not [[name expr]] (cl-format nil "not ~a" expr))
-(defn clj->sql-is-null [[name expr]] (cl-format nil "is null ~a" expr))
-(defn clj->sql-is-not-null [[name expr]] (cl-format nil "is not null ~a" expr))
+(defn clj->sql-not [[name expr]] (cl-format nil "~a not" expr))
+(defn clj->sql-is-null [[name expr]] (cl-format nil "~a is null" expr))
+(defn clj->sql-is-not-null [[name expr]] (cl-format nil "~a is not null" expr))
 
 (def sql-keywords
      (merge (zipmap '(and or) (repeat clj->multiarg-op))
@@ -62,7 +67,8 @@
             (zipmap '(lower upper) (repeat clj->function))
             {'not clj->sql-not
              'is-null clj->sql-is-null
-             'is-not-null clj->sql-is-not-null}))
+             'is-not-null clj->sql-is-not-null
+	     'nil (constantly nil)}))
 
 (defn sql-quote 
   "Given an object, use (str object) to obtain its printed representation and
@@ -70,10 +76,13 @@
   [s]
   (str \' (-> s str (.replace "\\" "\\\\") (.replace "'" "\\'") (.replace "\"" (str \\ \"))) \'))
 
-(defn sql-expr [c]
+(defn sql-expr
+  "convert lisp-like sql tree into strings."
+  [c]
   (postwalk
    (fn [form]
-     (cond (seq? form) (if-let [f (sql-keywords (first form))]
+     (cond (nil? form) nil ;; ignore
+	   (seq? form) (if-let [f (sql-keywords (first form))]
                          (f form)
                          form)
            (string? form) (sql-quote form)
