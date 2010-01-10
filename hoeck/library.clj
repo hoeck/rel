@@ -3,6 +3,9 @@
   (:use [clojure.contrib.except :only [throw-arg]]))
 
 
+(defn remove-interned-symbols [foreign-ns-name]
+  (map (partial ns-unmap *ns*)
+       (keys (ns-publics (find-ns foreign-ns-name)))))
 
 (defmacro %>
   "Short for #(-> % ...)"
